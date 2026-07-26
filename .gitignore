@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Never commit images, modules or extracted trees.
+*.ko
+*.img
+*.patched
+*.squashfs
+initrd*
+rootfs/
