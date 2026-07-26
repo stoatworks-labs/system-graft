@@ -2,6 +2,15 @@
 
 ### Driver injector for SquashFS initrd images
 
+> **AI-assisted project.** This codebase was created with [Claude](https://claude.com/claude-code)
+> (Anthropic), directed and reviewed by a human author. The patch path is covered by 16
+> tests run on Ubuntu and macOS in CI, and has been exercised against a real appliance
+> firmware image. The USB writer has only ever been run against an **attached disk image,
+> never a physical stick**, and **no image produced by this tool has been booted on real
+> hardware**. The Linux write path is implemented but **untested**. This tool repartitions
+> and erases block devices — read the safety notes and confirm the target twice before
+> using it on anything you care about.
+
 Inject out-of-tree kernel modules into a SquashFS initrd, add a load hook to the image's
 init scripts, and write the result to bootable removable media.
 
