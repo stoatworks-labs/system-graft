@@ -10,3 +10,4 @@ __pycache__/
 initrd*
 rootfs/
 tests/__pycache__/
+.demo/

@@ -23,6 +23,8 @@ driver set, and you need a driver for hardware you own that the vendor's build d
 include. This unpacks the initrd, drops in a `.ko` you built, wires it into the init
 sequence, and repacks it faithfully.
 
+![System Graft GUI after a completed patch. Stage 1 shows the selected OS image directory, the detected SquashFS image with its compression and block size, the Generic BusyBox profile, one module igb.ko listed with its vermagic string, and the output path. Stage 2 shows the bootable-USB controls. The log below reports the verification pass: ownership and setuid bits preserved, permission table matches source exactly, the injected module present in the output, and a sha256 of the result](docs/screenshots/patch-complete.png)
+
 ## Why this isn't just `unsquashfs` + `mksquashfs`
 
 Because doing it by hand silently produces a broken image. Three things bite:
@@ -61,6 +63,8 @@ ERROR: vermagic mismatch for fakenic.ko:
     Rebuild the module against a matching kernel tree, or enable the override
     if you know what you are doing.
 ```
+
+![System Graft GUI showing a blocked patch. A module built for Debian's 6.1.0-19-amd64 kernel has been selected against an image whose kernel is 6.12.11 with PREEMPT_RT. The log shows the vermagic of the module already in the image, the vermagic of the module being added, and a red refusal printing both strings side by side with the advice to rebuild against a matching kernel tree. The status line reads "Failed — see log" and no output was written](docs/screenshots/vermagic-blocked.png)
 
 There's an override, off by default. It exists for people who know why they want it.
 
