@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-14 is arm64. Intel macOS runners are retired — see the project's
+        # notes; do not add macos-13 here.
+        os: [ubuntu-latest, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install squashfs-tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+
+      - name: Install squashfs-tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install squashfs
+
+      - name: Tool versions
+        run: |
+          python3 --version
+          mksquashfs -version | head -1
+          unsquashfs -version | head -1
+
+      - name: Byte-compile
+        run: python3 -m compileall -q patcher.py gui.py usbwriter.py _version.py
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: CLI smoke
+        run: |
+          python3 patcher.py --version
+          python3 usbwriter.py --version
+          python3 usbwriter.py --list
+
+      - name: Device enumeration must not offer anything on a CI runner
+        run: |
+          out=$(python3 usbwriter.py --list)
+          echo "$out"
+          case "$out" in
+            *"No eligible removable devices found"*) echo "ok: nothing offered" ;;
+            *) echo "FAIL: enumeration offered a device on a CI runner"; exit 1 ;;
+          esac

@@ -23,10 +23,11 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import patcher
 import usbwriter
+from _version import __version__
 from patcher import PatchError, PatchRequest, PROFILES
 from usbwriter import USBError
 
-APP_TITLE = "System Graft"
+APP_TITLE = f"System Graft {__version__}"
 
 BG = "#12141a"
 FG = "#d6dae3"

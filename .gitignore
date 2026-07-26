@@ -9,3 +9,4 @@ __pycache__/
 *.squashfs
 initrd*
 rootfs/
+tests/__pycache__/

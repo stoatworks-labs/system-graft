@@ -97,6 +97,23 @@ python3 patcher.py /path/to/image-dir -m ./igb.ko -p sgs
       --keep-xattrs             preserve xattrs (see note below)
 ```
 
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The suite builds a synthetic appliance image from scratch — root-owned files, a **setuid**
+binary, and a directory owned by a uid with no passwd entry — then patches it and asserts
+that all of it survives. It runs as an ordinary user and needs no fixtures in the repo.
+
+Covered: setuid/ownership/root-inode preservation, module injection, hook placement and
+indentation, hook placement *inside* the correct init branch, idempotency across three
+consecutive re-patches, vermagic blocking and override, input immutability, output-overwrite
+refusal, non-SquashFS rejection, and compressor/block-size preservation.
+
+CI runs the suite on Ubuntu and macOS on every push.
+
 ## Profiles
 
 A profile says where the initrd lives, which init script to hook, where in that script to

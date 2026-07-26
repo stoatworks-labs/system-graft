@@ -28,6 +28,8 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from _version import __version__
+
 SENTINEL_BEGIN = "# >>> system-graft BEGIN (generated — safe to delete this block) >>>"
 SENTINEL_END = "# <<< system-graft END <<<"
 
@@ -651,6 +653,7 @@ def main(argv=None):
     ap.add_argument("-p", "--profile", choices=sorted(PROFILES), default="generic")
     ap.add_argument("--allow-vermagic-mismatch", action="store_true")
     ap.add_argument("--keep-xattrs", action="store_true")
+    ap.add_argument("--version", action="version", version=f"system-graft {__version__}")
     args = ap.parse_args(argv)
 
     profile = PROFILES[args.profile]

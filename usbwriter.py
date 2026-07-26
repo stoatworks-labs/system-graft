@@ -29,6 +29,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from _version import __version__
+
 IS_MAC = platform.system() == "Darwin"
 IS_LINUX = platform.system() == "Linux"
 
@@ -396,6 +398,7 @@ def main(argv=None):
                     help="include attached disk images (for testing)")
     ap.add_argument("--yes-destroy-device", action="store_true",
                     help="required to actually write")
+    ap.add_argument("--version", action="version", version=f"system-graft {__version__}")
     args = ap.parse_args(argv)
 
     if args.list or not args.device:
