@@ -56,4 +56,4 @@ First release.
 - UEFI boot only; no BIOS boot sector is installed.
 - xattrs are dropped by default (see README).
 
-[0.1.0]: https://github.com/allansargeant/system-graft/releases/tag/v0.1.0
+[0.1.0]: https://github.com/stoatworks-labs/system-graft/releases/tag/v0.1.0
