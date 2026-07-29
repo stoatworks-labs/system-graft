@@ -72,6 +72,14 @@ If `CONFIG_MODVERSIONS` is in the vermagic, matching the string is necessary but
 sufficient — the symbol CRCs must match too. Build against the same kernel source and
 config as the image's kernel.
 
+## Documentation
+
+| Doc | Contents |
+|---|---|
+| [docs/USER-GUIDE.md](docs/USER-GUIDE.md) | The workflow, the vermagic wall, what gets silently dropped, writing a stick, troubleshooting |
+| [docs/API.md](docs/API.md) | Both CLIs, the Python API, and the profile system |
+| [docs/DEVELOPING.md](docs/DEVELOPING.md) | The safety rules, the status split, and the design decisions to preserve |
+
 ## Requirements
 
 - Python 3.10+ with Tkinter (for the GUI; the CLI needs neither Tk nor any third-party package)
