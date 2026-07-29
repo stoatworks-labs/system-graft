@@ -160,6 +160,20 @@ def _linux_devices(allow_virtual: bool) -> list[Device]:
 
 
 def list_devices(allow_virtual: bool = False) -> list[Device]:
+    """Every device this tool is willing to write to, on this platform.
+
+    THE ONLY SANCTIONED WAY TO GET A Device. The two filters at the bottom are
+    the first of the two places internal disks are rejected (assert_safe() is
+    the second), so a Device built by hand elsewhere bypasses them entirely.
+
+    `allow_virtual` admits attached disk images. It exists so the write path
+    can be exercised against a throwaway image instead of a real stick -- which
+    is how every test of this module has been run -- and it is deliberately not
+    offered in the GUI.
+
+    macOS is the tested path. Linux is implemented and COMPLETELY UNTESTED.
+    Anything else raises rather than guessing.
+    """
     if IS_MAC:
         devices = _mac_devices(allow_virtual)
     elif IS_LINUX:
@@ -172,7 +186,16 @@ def list_devices(allow_virtual: bool = False) -> list[Device]:
 
 
 def assert_safe(device: Device, allow_virtual: bool = False) -> None:
-    """Last line of defence. Called again immediately before writing."""
+    """Last line of defence. Called again immediately before writing.
+
+    Deliberately duplicates checks list_devices() already made. That is the
+    point: enumeration filters what a user can SEE, this refuses what they
+    explicitly NAMED, and write_bootable() calls it after re-reading the device
+    so a stale selection cannot be acted on.
+
+    Do not relax this to make an automated run smoother. Between a typo and
+    somebody's disk, this is what is left.
+    """
     if device.internal:
         raise USBError(f"{device.node} is an internal disk — refusing.")
     if device.virtual and not allow_virtual:
@@ -249,6 +272,24 @@ def write_bootable(device: Device, image_dir: Path, replacements: dict[str, Path
 
     Partitions the device GPT, formats one FAT32 volume, copies the tree with
     replacements applied, verifies by hash, and ejects.
+
+    THIS ERASES THE WHOLE DEVICE. It re-reads the target and re-runs
+    assert_safe() as its first act, so a device removed or swapped since
+    selection aborts rather than being written.
+
+    Bootability is UEFI-only, through the removable-media fallback path
+    \\EFI\\BOOT\\BOOTX64.EFI -- no NVRAM entry and no boot sector. A tree
+    without that file produces a WARNING AND STILL WRITES, so a warned-past run
+    yields a stick that will not boot. Legacy BIOS would need a boot sector this
+    tool does not install.
+
+    `set_esp_type` marks the partition EFI System via sgdisk, which needs sgdisk
+    present AND able to elevate. When it cannot, the type is left as Microsoft
+    Basic Data -- accepted by virtually all firmware on removable media, but it
+    means the partition type quietly depends on whether elevation worked.
+
+    Nothing produced by this function has ever been booted on real hardware,
+    and the writer itself has only ever run against an attached disk image.
     """
     if not image_dir.is_dir():
         raise USBError(f"image directory not found: {image_dir}")

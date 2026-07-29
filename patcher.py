@@ -11,6 +11,16 @@ Design rules this module exists to enforce:
   * vermagic is checked against modules already in the image before injecting.
   * Nothing outside the initrd is touched — no vendor container formats, no
     checksums recomputed, no allow-lists edited.
+
+That last rule is a scope commitment, not an implementation detail: whether
+modifying any particular image is permitted is decided by that image's licence
+terms and is the user's call, and this tool neither asserts an answer nor works
+around a restriction.
+
+xattrs are dropped unless req.keep_xattrs, because a macOS extract picks up host
+com.apple.* attributes that have no business in a Linux image. File capabilities
+(security.capability) and SELinux labels live in xattrs and go with them, so an
+image relying on file caps needs keep_xattrs AND to be patched on Linux.
 """
 
 from __future__ import annotations
@@ -423,6 +433,23 @@ def patch(req: PatchRequest):
 
     level is one of: "info", "step", "ok", "warn", "error", "cmd".
     Raises PatchError on any condition that should stop the run.
+
+    Callers must BOTH iterate and handle PatchError -- draining the generator
+    without catching will lose the failure. The generator shape is what lets the
+    GUI show live progress without patcher.py knowing anything about a GUI;
+    don't collapse it into a callback or a return value.
+
+    The vermagic check is the safety property this whole module exists for, and
+    req.allow_vermagic_mismatch turns it off. Left on, a module built against
+    the wrong kernel is refused here, now, with both strings printed. Turned
+    off, the kernel refuses it instead -- SILENTLY, AT BOOT, on a machine that
+    may have no console. Anything that makes the override easier to reach
+    (flipping the default, widening it, downgrading the refusal to a warning)
+    reverses the tool's main purpose.
+
+    Note too that matching the vermagic string is necessary but not sufficient:
+    with CONFIG_MODVERSIONS the symbol CRCs must match as well, so an override
+    can pass this check and still produce a module that will not load.
     """
     unsquashfs, mksquashfs = require_tools()
 
