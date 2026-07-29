@@ -27,6 +27,8 @@ from _version import __version__
 from patcher import PatchError, PatchRequest, PROFILES
 from usbwriter import USBError
 
+import diag
+
 APP_TITLE = f"System Graft {__version__}"
 
 BG = "#12141a"
@@ -452,7 +454,11 @@ class App(ttk.Frame):
 
 
 def main():
+    diag.init(app="system-graft", env_prefix="SYSTEM_GRAFT", version=__version__)
     root = tk.Tk()
+    # Tk swallows exceptions raised inside callbacks; without this a fault in
+    # any button handler never reaches the crash handler.
+    diag.install_tk_excepthook(root)
     root.title(APP_TITLE)
     root.geometry("940x860")
     root.minsize(820, 640)

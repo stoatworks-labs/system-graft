@@ -40,6 +40,8 @@ from pathlib import Path
 
 from _version import __version__
 
+import diag
+
 SENTINEL_BEGIN = "# >>> system-graft BEGIN (generated — safe to delete this block) >>>"
 SENTINEL_END = "# <<< system-graft END <<<"
 
@@ -673,7 +675,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Inject out-of-tree kernel modules into a SquashFS initrd. "
                     "You supply the image and the modules; this tool ships neither.")
-    ap.add_argument("image_dir", type=Path, help="directory containing the OS image")
+    # Optional so that --collect-diagnostics works on its own: someone asking
+    # for diagnostics has usually just had a run fail and has no image path
+    # to hand. Required-ness is enforced below instead.
+    ap.add_argument("image_dir", type=Path, nargs="?",
+                    help="directory containing the OS image")
     ap.add_argument("-m", "--module", type=Path, action="append", default=[],
                     help="kernel module (.ko) to inject; repeatable")
     ap.add_argument("-o", "--output", type=Path, default=None, help="output initrd path")
@@ -681,7 +687,21 @@ def main(argv=None):
     ap.add_argument("--allow-vermagic-mismatch", action="store_true")
     ap.add_argument("--keep-xattrs", action="store_true")
     ap.add_argument("--version", action="version", version=f"system-graft {__version__}")
+    ap.add_argument("--collect-diagnostics", action="store_true",
+                    help="write a diagnostics bundle and exit")
     args = ap.parse_args(argv)
+
+    # Before anything that can fail, so a failure is logged and captured.
+    diag.init(app="system-graft", env_prefix="SYSTEM_GRAFT",
+              version=__version__, config=vars(args))
+
+    if args.collect_diagnostics:
+        # stdout, so it can be used in a script; logging went to stderr.
+        print(diag.collect_diagnostics())
+        return
+
+    if args.image_dir is None:
+        ap.error("image_dir is required")
 
     profile = PROFILES[args.profile]
     images = find_images(args.image_dir, profile)
