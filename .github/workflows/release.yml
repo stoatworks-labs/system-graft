@@ -1,0 +1,164 @@
+name: release
+
+# Freeze the GUI with PyInstaller and publish installable artefacts.
+#
+# macOS and Linux only, deliberately: usbwriter.py raises
+# "USB writing is not implemented on <platform>" for anything else, so a
+# Windows build would install a tool that cannot do the thing it exists for.
+#
+# PyInstaller bundles the interpreter it runs under and cannot cross-compile,
+# so every target builds on its own native runner. Each architecture is its own
+# job for that reason, not for parallelism.
+#
+# squashfs-tools is NOT bundled — the app shells out to unsquashfs/mksquashfs
+# and there is no way to vendor them into a frozen bundle. The release notes
+# say so.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macos-arm64,   os: macos-14 }
+          - { name: linux-x86_64,  os: ubuntu-latest,   pkgarch: amd64 }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm, pkgarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            [0-9]*) ;;
+            *) version="$(sed -n 's/^__version__ = "\([^"]*\)".*/\1/p' _version.py)" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "building $version"
+
+      - name: Freeze (PyInstaller)
+        shell: bash
+        # --windowed gives a .app on macOS; on Linux it is a plain binary, so
+        # --onefile there keeps the download a single file.
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            pyinstaller --noconfirm --clean --windowed --name "System Graft" gui.py
+          else
+            pyinstaller --noconfirm --clean --onefile --name system-graft gui.py
+          fi
+          ls -la dist
+
+      - name: Installers (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        # Ad-hoc signed before packaging: PyInstaller's bundle is unsigned, and
+        # an unsigned bundle is refused with "is damaged and can't be opened"
+        # on Apple Silicon.
+        run: |
+          source scripts/release-lib.sh
+          rl_init "System Graft" system-graft "${{ steps.ver.outputs.version }}" \
+            com.stoatworks.system-graft "$GITHUB_WORKSPACE"
+          app="dist/System Graft.app"
+          if [ ! -d "$app" ]; then echo "no .app produced" >&2; exit 1; fi
+          cp README.md LICENSE dist/ 2>/dev/null || true
+          rl_adhoc_sign "$app"
+          rl_dmg "${{ matrix.name }}" dist --app "System Graft.app"
+          rl_pkg "${{ matrix.name }}" dist --app "System Graft.app"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          PKGARCH: ${{ matrix.pkgarch }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p out
+          cp dist/system-graft out/
+          cp README.md LICENSE out/ 2>/dev/null || true
+          tar czf "system-graft-${VERSION}-${{ matrix.name }}.tar.gz" -C out .
+
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.1
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          cat > nfpm.yaml <<EOF
+          name: system-graft
+          arch: ${PKGARCH}
+          version: "${VERSION}"
+          maintainer: Allan Sargeant <allan.sargeant@gmail.com>
+          description: Inject kernel modules into a SquashFS initrd and write a bootable UEFI USB
+          license: MIT
+          depends:
+            - squashfs-tools
+          contents:
+            - src: out/system-graft
+              dst: /usr/bin/system-graft
+          EOF
+          nfpm package -f nfpm.yaml -p deb
+          nfpm package -f nfpm.yaml -p rpm
+          rm -f nfpm.yaml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: system-graft-${{ matrix.name }}
+          path: |
+            *.tar.gz
+            *.deb
+            *.rpm
+            *.dmg
+            *.pkg
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          body: |
+            **macOS** — `.pkg` installs System Graft into /Applications; `.dmg` lets you drag it.
+            Apple Silicon only: PyInstaller freezes the interpreter it runs under and cannot
+            cross-compile, and the Intel macOS runners are retired.
+
+            **Linux** — `.deb` and `.rpm` (both declare a `squashfs-tools` dependency), plus a
+            portable `.tar.gz`. x86_64 and aarch64.
+
+            **Windows is not built**, because it is not supported: USB writing raises
+            "not implemented" on anything that is not macOS or Linux.
+
+            `squashfs-tools` is required at runtime and is **not** bundled — the app shells out
+            to `unsquashfs`/`mksquashfs`. Install it with `brew install squashfs` on macOS, or
+            your package manager on Linux (the .deb/.rpm pull it in for you).
+
+            Builds are unsigned. On macOS, after installing:
+
+            ```
+            xattr -dr com.apple.quarantine "/Applications/System Graft.app"
+            ```
+
+            macOS is the tested write path; the Linux write path is implemented but untested,
+            and this tool repartitions removable media — read the README first.
+          generate_release_notes: true
