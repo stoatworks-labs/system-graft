@@ -34,7 +34,7 @@ jobs:
           - { name: linux-x86_64,  os: ubuntu-latest,   pkgarch: amd64 }
           - { name: linux-aarch64, os: ubuntu-24.04-arm, pkgarch: arm64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
