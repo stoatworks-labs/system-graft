@@ -25,6 +25,42 @@ sequence, and repacks it faithfully.
 
 ![System Graft GUI after a completed patch. Stage 1 shows the selected OS image directory, the detected SquashFS image with its compression and block size, the Generic BusyBox profile, one module igb.ko listed with its vermagic string, and the output path. Stage 2 shows the bootable-USB controls. The log below reports the verification pass: ownership and setuid bits preserved, permission table matches source exactly, the injected module present in the output, and a sha256 of the result](docs/screenshots/patch-complete.png)
 
+<!-- downloads:start -->
+
+## Download
+
+**[v0.1.1](https://github.com/stoatworks-labs/system-graft/releases/tag/v0.1.1)** — prebuilt for macOS and Linux. Pick your platform:
+
+<details>
+<summary><b>macOS</b> — Apple Silicon</summary>
+
+| Build | Download | Size |
+| --- | --- | --- |
+| Apple Silicon · .dmg disk image | [`system-graft-0.1.1-macos-arm64.dmg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-macos-arm64.dmg) | 25 MB |
+| Apple Silicon · .pkg installer | [`system-graft-0.1.1-macos-arm64.pkg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-macos-arm64.pkg) | 11 MB |
+
+</details>
+
+<details>
+<summary><b>Linux</b> — x64, ARM64</summary>
+
+| Build | Download | Size |
+| --- | --- | --- |
+| x64 · .deb package (Debian/Ubuntu) | [`system-graft_0.1.1_amd64.deb`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft_0.1.1_amd64.deb) | 25 MB |
+| ARM64 · .deb package (Debian/Ubuntu) | [`system-graft_0.1.1_arm64.deb`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft_0.1.1_arm64.deb) | 24 MB |
+| x64 · .rpm package (Fedora/RHEL) | [`system-graft-0.1.1-1.x86_64.rpm`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-1.x86_64.rpm) | 26 MB |
+| ARM64 · .rpm package (Fedora/RHEL) | [`system-graft-0.1.1-1.aarch64.rpm`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-1.aarch64.rpm) | 25 MB |
+| x64 · .tar.gz archive | [`system-graft-0.1.1-linux-x86_64.tar.gz`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-linux-x86_64.tar.gz) | 25 MB |
+| ARM64 · .tar.gz archive | [`system-graft-0.1.1-linux-aarch64.tar.gz`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-linux-aarch64.tar.gz) | 24 MB |
+
+</details>
+
+All builds, checksums and release notes: [github.com/stoatworks-labs/system-graft/releases](https://github.com/stoatworks-labs/system-graft/releases).
+
+These builds are unsigned, so macOS and Windows each warn once on first launch — see [Unsigned builds — macOS Gatekeeper](#unsigned-builds--macos-gatekeeper) for the one-time fix.
+
+<!-- downloads:end -->
+
 ## Why this isn't just `unsquashfs` + `mksquashfs`
 
 Because doing it by hand silently produces a broken image. Three things bite:
@@ -239,6 +275,20 @@ supported.
   module against that kernel, this tool can't help you.
 - **Nothing outside the initrd is touched** — no vendor container formats are opened, no
   checksums recomputed, no compatibility lists edited.
+
+## Unsigned builds — macOS Gatekeeper
+
+The release binaries are **not code-signed or notarized** — that needs paid Apple
+and Microsoft developer certificates this project doesn't carry. The downloads are
+fine; the OS just can't identify the publisher, so it warns you the first time.
+
+- **macOS** — *"cannot be opened because the developer cannot be verified"*.
+  Right-click the app → **Open** → **Open**, or clear the flag:
+  `xattr -dr com.apple.quarantine "/Applications/System Graft.app"`
+- **Linux** — no signing gate.
+
+Per-artifact steps, self-signing and checksum verification:
+**[docs/UNSIGNED.md](docs/UNSIGNED.md)**.
 
 ## Scope
 
