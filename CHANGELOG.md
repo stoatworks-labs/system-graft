@@ -3,6 +3,28 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] — 2026-07-30
+
+A packaging and documentation release. No patching or USB-writing behaviour changed.
+
+### Added
+
+- **A release workflow that ships installable artefacts.** v0.1.0 was a source-only tag;
+  there is now something to download.
+- **Built-in logging and crash diagnostics** through the vendored `diag` module, so a
+  failed patch or write can be reported with the run's log attached.
+- User, developer and interface documentation under `docs/`.
+- AGENTS.md — onboarding for LLMs and newcomers.
+- GUI screenshots in the README, and the AI-assisted project disclaimer.
+- Sponsor button configuration (GitHub Sponsors and Liberapay).
+
+### Changed
+
+- The destructive and safety-critical paths now carry comments explaining *why* each guard
+  is there — the device re-read before writing, the external-only filter, and the
+  permission-table diff are easy to "tidy" away without them.
+- GitHub URLs throughout the docs now point at the `stoatworks-labs` account.
+
 ## [0.1.0] — 2026-07-26
 
 First release.
@@ -56,4 +78,5 @@ First release.
 - UEFI boot only; no BIOS boot sector is installed.
 - xattrs are dropped by default (see README).
 
+[0.1.1]: https://github.com/stoatworks-labs/system-graft/releases/tag/v0.1.1
 [0.1.0]: https://github.com/stoatworks-labs/system-graft/releases/tag/v0.1.0
