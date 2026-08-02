@@ -1,4 +1,4 @@
-# System Graft — User Guide
+# System Graft user guide
 
 Injecting kernel modules into a SquashFS initrd, and writing a bootable UEFI USB stick.
 
@@ -7,8 +7,7 @@ safety model in detail. This is the workflow, and what to be careful with.
 
 ---
 
-## 0. ⚠ Read this before running anything
-
+## Read this before running anything
 ### This tool erases disks
 
 The USB writer **repartitions and erases whole block devices.** Point it at the wrong device and
@@ -38,7 +37,12 @@ macOS is the tested platform for writing. Windows isn't supported.
 
 ---
 
-## 1. The workflow
+## The workflow
+
+![The two steps on one window: patch an initrd with your modules, then write the whole boot tree to a USB stick.](screenshots/patch-complete.png)
+
+*"You supply the image and the modules. This tool ships neither, never modifies the input, and
+always writes new output" — the app's own first line, and the shape of the whole thing.*
 
 1. **Get the image and the modules.** The tool reads an image you provide and modules you
    provide, and writes a new initrd. It doesn't fetch anything.
@@ -49,7 +53,13 @@ There's a GUI and a CLI; see the README for invocation.
 
 ---
 
-## 2. ⚠ The vermagic wall, and why you shouldn't climb it
+## The vermagic wall, and why you shouldn't climb it
+
+![The app refusing a module on a vermagic mismatch: the log names both strings — the module's 6.1.0-19-amd64 against the image's 6.12.11 — and says the kernel will refuse to load it.](screenshots/vermagic-blocked.png)
+
+*The refusal states both vermagic strings and what to do about it. **Allow vermagic mismatch**
+above the Patch button is the override, and its own label tells you the outcome: "module will not
+load".*
 
 A module only loads into a kernel whose **vermagic matches exactly** — kernel version, SMP,
 preemption model, `mod_unload`, `modversions`.
@@ -72,8 +82,7 @@ you.** It doesn't touch the kernel, only the initrd.
 
 ---
 
-## 3. Choosing a profile
-
+## Choosing a profile
 A profile tells the tool where the initrd lives, which init script to hook, and **how a module
 load is written in that image's idiom**.
 
@@ -92,8 +101,7 @@ image's own conventions rather than looking foreign in it.
 
 ---
 
-## 4. Things that are silently dropped or refused
-
+## Things that are silently dropped or refused
 | | Behaviour |
 |---|---|
 | **cpio/gzip initramfs** | **Detected and rejected with a clear message.** SquashFS only — it won't corrupt one by trying. |
@@ -105,8 +113,7 @@ image's own conventions rather than looking foreign in it.
 
 ---
 
-## 5. Writing the USB stick
-
+## Writing the USB stick
 **Only external devices are ever offered.** Internal disks are filtered out before you can see
 them and rejected again if you name one explicitly.
 
@@ -119,7 +126,7 @@ the stick was removed or changed, the write aborts.
 
 **Every written file is verified by sha256** against its source before the volume is ejected.
 
-### ⚠ Bootability is UEFI-only, and only warned about
+### Bootability is UEFI-only, and only warned about
 
 The volume boots through the removable-media fallback path `\EFI\BOOT\BOOTX64.EFI` — no NVRAM
 entry, no boot sector.
@@ -136,20 +143,19 @@ the partition type quietly depends on whether elevation succeeded.
 
 ---
 
-## 6. Troubleshooting
-
+## Troubleshooting
 | Symptom | Cause |
 |---|---|
-| **"vermagic mismatch" and it refuses** | Working as intended. Rebuild the module against a matching kernel tree (§2). |
-| **Overrode the mismatch, module still doesn't load at boot** | Expected. The override doesn't make the kernel accept it — and with `CONFIG_MODVERSIONS`, CRCs must match too (§2). |
-| **Image rejected as not SquashFS** | It's a cpio/gzip initramfs. Not supported, and refusing beats corrupting it (§4). |
-| **File capabilities lost in the patched image** | xattrs are dropped by default; use `--keep-xattrs`, on Linux (§4). |
-| **Stick written but won't boot** | No `\EFI\BOOT\BOOTX64.EFI` in the tree — the tool warned (§5). Or the firmware is legacy-BIOS only (§5). Or: **no image from this tool has ever been booted on real hardware** (§0). |
-| **Firmware doesn't see the partition** | `sgdisk` couldn't elevate, so the type stayed Microsoft Basic Data (§5). |
-| **My USB stick isn't listed** | Only devices the OS reports as **external** are shown (§5). |
-| **A disk image isn't listed** | Virtual devices need the explicit allow flag, and it isn't in the GUI (§5). |
-| **The write aborted just before starting** | The device was re-read and had changed or gone (§5). |
-| **On Linux and it behaved oddly** | The Linux write path is **implemented and completely untested** (§0). |
+| **"vermagic mismatch" and it refuses** | Working as intended. Rebuild the module against a matching kernel tree ([The vermagic wall, and why you shouldn't climb it](#the-vermagic-wall-and-why-you-shouldnt-climb-it)). |
+| **Overrode the mismatch, module still doesn't load at boot** | Expected. The override doesn't make the kernel accept it — and with `CONFIG_MODVERSIONS`, CRCs must match too ([The vermagic wall, and why you shouldn't climb it](#the-vermagic-wall-and-why-you-shouldnt-climb-it)). |
+| **Image rejected as not SquashFS** | It's a cpio/gzip initramfs. Not supported, and refusing beats corrupting it ([Things that are silently dropped or refused](#things-that-are-silently-dropped-or-refused)). |
+| **File capabilities lost in the patched image** | xattrs are dropped by default; use `--keep-xattrs`, on Linux ([Things that are silently dropped or refused](#things-that-are-silently-dropped-or-refused)). |
+| **Stick written but won't boot** | No `\EFI\BOOT\BOOTX64.EFI` in the tree — the tool warned ([Writing the USB stick](#writing-the-usb-stick)). Or the firmware is legacy-BIOS only ([Writing the USB stick](#writing-the-usb-stick)). Or: **no image from this tool has ever been booted on real hardware** ([Read this before running anything](#read-this-before-running-anything)). |
+| **Firmware doesn't see the partition** | `sgdisk` couldn't elevate, so the type stayed Microsoft Basic Data ([Writing the USB stick](#writing-the-usb-stick)). |
+| **My USB stick isn't listed** | Only devices the OS reports as **external** are shown ([Writing the USB stick](#writing-the-usb-stick)). |
+| **A disk image isn't listed** | Virtual devices need the explicit allow flag, and it isn't in the GUI ([Writing the USB stick](#writing-the-usb-stick)). |
+| **The write aborted just before starting** | The device was re-read and had changed or gone ([Writing the USB stick](#writing-the-usb-stick)). |
+| **On Linux and it behaved oddly** | The Linux write path is **implemented and completely untested** ([Read this before running anything](#read-this-before-running-anything)). |
 
 ---
 
