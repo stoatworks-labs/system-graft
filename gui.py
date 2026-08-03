@@ -28,6 +28,7 @@ from patcher import PatchError, PatchRequest, PROFILES
 from usbwriter import USBError
 
 import diag
+from about_dialog import show_about
 
 APP_TITLE = f"System Graft {__version__}"
 
@@ -94,6 +95,10 @@ class App(ttk.Frame):
         self.progress = ttk.Progressbar(bar, mode="determinate", maximum=100.0)
         self.progress.grid(row=0, column=0, sticky="ew")
         ttk.Button(bar, text="Save log…", command=self.save_log).grid(row=0, column=1, padx=(10, 0))
+        # Vendored from stoatworks-backend/about - see about_dialog.py.
+        ttk.Button(bar, text="About", command=lambda: show_about(self.master, __version__)).grid(
+            row=0, column=2, padx=(6, 0)
+        )
 
         logframe = ttk.Frame(self)
         logframe.grid(row=4, column=0, sticky="nsew")
