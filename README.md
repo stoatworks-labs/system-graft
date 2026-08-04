@@ -36,7 +36,7 @@ sequence, and repacks it faithfully.
 
 | Build | Download | Size |
 | --- | --- | --- |
-| Apple Silicon · .dmg disk image | [`system-graft-0.1.1-macos-arm64.dmg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-macos-arm64.dmg) | 25 MB |
+| Apple Silicon · .dmg disk image | [`system-graft-0.1.1-macos-arm64.dmg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-macos-arm64.dmg) | 21 MB |
 | Apple Silicon · .pkg installer | [`system-graft-0.1.1-macos-arm64.pkg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-macos-arm64.pkg) | 11 MB |
 
 </details>
