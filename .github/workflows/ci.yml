@@ -38,7 +38,7 @@ jobs:
           unsquashfs -version | head -1
 
       - name: Byte-compile
-        run: python3 -m compileall -q patcher.py gui.py usbwriter.py _version.py
+        run: python3 -m compileall -q patcher.py gui.py usbwriter.py _version.py kmod.py hardware.py sources.py kernelspec.py distro.py
 
       - name: Unit tests
         run: python3 -m unittest discover -s tests -v

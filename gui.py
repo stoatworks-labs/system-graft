@@ -7,7 +7,13 @@ Two stages, sharing one progress bar and one log:
   2. Write    — put the boot tree (with the patched initrd substituted) onto
                 removable media as a UEFI-bootable volume.
 
-All work runs on a worker thread; the UI only ever drains a queue.
+Stage 1 also carries the read-only inspection tools — coverage, module search,
+build spec — which answer "which driver do I need, and which build of it" before
+there is anything to inject. They write nothing.
+
+All work runs on a worker thread; the UI only ever drains a queue. Both
+patcher.patch() and patcher.inspect() are generators yielding
+(fraction, level, message), so _run_job drives either without caring which.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+import kmod
 import patcher
 import usbwriter
 from _version import __version__
@@ -47,6 +54,108 @@ MONO = ("SF Mono", 11) if sys.platform == "darwin" else ("Consolas", 10)
 MONO_BOLD = MONO + ("bold",)
 
 
+class HardwareDialog(tk.Toplevel):
+    """
+    Collect a device listing from the target machine, and optionally an alias DB.
+
+    A paste box rather than a file picker, because of where this data comes from:
+    a machine that will not boot. The listing gets read off a screen, or copied
+    out of a serial console, or produced by a live USB stick — it very often
+    exists as text in a terminal window and never as a file on the disk running
+    this tool. Demanding a file first would make the common case the awkward one.
+    """
+
+    PLACEHOLDER = (
+        "Run one of these on the target machine (or on any Linux booted on that\n"
+        "hardware — a live USB is fine) and paste the output here:\n"
+        "\n"
+        "    lspci -nnmm        preferred: includes subsystem IDs\n"
+        "    lspci -nn          fine, but some matches will come back UNCERTAIN\n"
+        "    lsusb              for USB devices\n"
+        "\n"
+        "A bare list of 8086:1533 pairs works too, and you can mix all of them."
+    )
+
+    @classmethod
+    def ask(cls, master, initial_text: str = "",
+            initial_alias_db: str = "") -> tuple[str, Path | None] | None:
+        """Show the dialog modally and return its result, or None if cancelled."""
+        dialog = cls(master, initial_text, initial_alias_db)
+        dialog.grab_set()
+        dialog.wait_window(dialog)
+        return dialog.result
+
+    def __init__(self, master, initial_text: str = "", initial_alias_db: str = ""):
+        # The modal wait deliberately lives in ask(), not here: a constructor that
+        # blocks until the user answers cannot be built in a test, and the input
+        # validation below is exactly the part worth testing.
+        super().__init__(master)
+        self.title("Hardware coverage")
+        self.result: tuple[str, Path | None] | None = None
+        self.transient(master)
+        self.resizable(True, True)
+
+        frame = ttk.Frame(self, padding=10)
+        frame.grid(sticky="nsew")
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(1, weight=1)
+
+        ttk.Label(frame, text=self.PLACEHOLDER, foreground=MUTED, justify="left",
+                  font=MONO).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+
+        self.text = tk.Text(frame, width=88, height=14, wrap="none", font=MONO,
+                            background=BG, foreground=FG, insertbackground=FG, relief="flat")
+        self.text.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=self.text.yview)
+        scroll.grid(row=1, column=2, sticky="ns")
+        self.text.configure(yscrollcommand=scroll.set)
+        if initial_text:
+            self.text.insert("1.0", initial_text)
+
+        ttk.Label(frame, text="Alias database (optional)").grid(
+            row=2, column=0, sticky="w", pady=(10, 0))
+        self.alias_db = tk.StringVar(value=initial_alias_db)
+        ttk.Entry(frame, textvariable=self.alias_db).grid(
+            row=3, column=0, sticky="ew", pady=(2, 0))
+        ttk.Button(frame, text="Browse…", command=self._pick_alias_db).grid(
+            row=3, column=1, columnspan=2, padx=(6, 0), pady=(2, 0))
+        ttk.Label(
+            frame,
+            text=("A modules.alias from any Linux system — /lib/modules/$(uname -r)/modules.alias. "
+                  "Without one, drivers for hardware this image lacks can only be hinted at."),
+            wraplength=620, foreground=MUTED,
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=5, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        ttk.Button(buttons, text="Cancel", command=self.destroy).grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(buttons, text="Check coverage", command=self._accept).grid(row=0, column=1)
+
+        self.text.focus_set()
+
+    def _pick_alias_db(self):
+        path = filedialog.askopenfilename(
+            title="Select a modules.alias file", parent=self,
+            filetypes=[("modules.alias", "modules.alias"), ("All files", "*")])
+        if path:
+            self.alias_db.set(path)
+
+    def _accept(self):
+        text = self.text.get("1.0", "end").strip()
+        if not text:
+            messagebox.showwarning(APP_TITLE, "Paste a device listing first.", parent=self)
+            return
+        raw = self.alias_db.get().strip()
+        alias_db = Path(raw) if raw else None
+        if alias_db and not alias_db.is_file():
+            messagebox.showerror(APP_TITLE, f"Not a file: {alias_db}", parent=self)
+            return
+        self.result = (text, alias_db)
+        self.destroy()
+
+
 class App(ttk.Frame):
     def __init__(self, master: tk.Tk):
         super().__init__(master, padding=10)
@@ -60,6 +169,8 @@ class App(ttk.Frame):
         self.output_path = tk.StringVar()
         self.profile_key = tk.StringVar(value="sgs")
         self.allow_mismatch = tk.BooleanVar(value=False)
+        self.allow_unsigned = tk.BooleanVar(value=False)
+        self.allow_missing_deps = tk.BooleanVar(value=False)
         self.keep_xattrs = tk.BooleanVar(value=False)
         self.device_choice = tk.StringVar()
         self.volume_label = tk.StringVar(value="BOOT")
@@ -71,6 +182,13 @@ class App(ttk.Frame):
         self.last_output: Path | None = None
         self.queue: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
+        # Every button that must be dead while a job runs. Collected as they are
+        # built rather than named individually, so adding one cannot forget it.
+        self._job_buttons: list[ttk.Button] = []
+        # Remembered so re-running a coverage check after fixing something does
+        # not mean pasting the whole listing again.
+        self._hardware_text = ""
+        self._alias_db = ""
 
         self._build()
         self._poll_queue()
@@ -105,7 +223,10 @@ class App(ttk.Frame):
         logframe.columnconfigure(0, weight=1)
         logframe.rowconfigure(0, weight=1)
         self.rowconfigure(4, weight=1)
-        self.log = tk.Text(logframe, height=16, wrap="none", background=BG, foreground=FG,
+        # The log is the only row with weight, so it is what absorbs a resize.
+        # Kept modest by default because stage 1 now carries the inspection
+        # controls too, and the window should still open on a 900px-tall screen.
+        self.log = tk.Text(logframe, height=12, wrap="none", background=BG, foreground=FG,
                            insertbackground=FG, relief="flat", font=MONO)
         self.log.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(logframe, orient="vertical", command=self.log.yview)
@@ -155,6 +276,26 @@ class App(ttk.Frame):
             "<<ComboboxSelected>>", lambda _e: self._set_profile_from_label(self.profile_combo.get()))
         row += 1
 
+        # Before the module list on purpose: these are the tools for working out
+        # *which* module you need, so they belong upstream of choosing one.
+        ttk.Label(frame, text="Inspect").grid(row=row, column=0, sticky="w", pady=(10, 0))
+        inspect_bar = ttk.Frame(frame)
+        inspect_bar.grid(row=row, column=1, columnspan=2, sticky="w", padx=6, pady=(10, 0))
+        for index, (label, command) in enumerate((
+                ("Report", self.run_report),
+                ("Hardware…", self.run_hardware),
+                ("Find modules…", self.run_scan),
+                ("Find online…", self.run_find_drivers),
+                ("Build spec…", self.run_build_spec))):
+            button = ttk.Button(inspect_bar, text=label, command=command)
+            button.grid(row=0, column=index, padx=(0, 6))
+            self._job_buttons.append(button)
+        row += 1
+
+        ttk.Label(frame, text="None of these write anything — results go to the log below.",
+                  foreground=MUTED).grid(row=row, column=1, columnspan=2, sticky="w", padx=6)
+        row += 1
+
         ttk.Label(frame, text="Modules (.ko)").grid(row=row, column=0, sticky="nw", pady=(6, 0))
         listframe = ttk.Frame(frame)
         listframe.grid(row=row, column=1, sticky="ew", padx=6, pady=(6, 0))
@@ -179,14 +320,21 @@ class App(ttk.Frame):
 
         opts = ttk.Frame(frame)
         opts.grid(row=row, column=1, columnspan=2, sticky="w", padx=6, pady=(6, 0))
+        # Each of these turns off a check for something the kernel will refuse at
+        # boot. They are worded to say what happens, not what is permitted.
         ttk.Checkbutton(opts, text="Allow vermagic mismatch (module will not load)",
                         variable=self.allow_mismatch).grid(row=0, column=0, sticky="w")
+        ttk.Checkbutton(opts, text="Allow unsigned modules (a signing kernel will refuse them)",
+                        variable=self.allow_unsigned).grid(row=1, column=0, sticky="w")
+        ttk.Checkbutton(opts, text="Allow missing dependencies (insmod will fail on them)",
+                        variable=self.allow_missing_deps).grid(row=2, column=0, sticky="w")
         ttk.Checkbutton(opts, text="Keep xattrs", variable=self.keep_xattrs).grid(
-            row=1, column=0, sticky="w")
+            row=3, column=0, sticky="w")
         row += 1
 
         self.patch_button = ttk.Button(frame, text="Patch", command=self.start_patch)
         self.patch_button.grid(row=row, column=0, sticky="w", pady=(10, 0))
+        self._job_buttons.append(self.patch_button)
         return frame
 
     def _build_usb_section(self) -> ttk.LabelFrame:
@@ -215,6 +363,7 @@ class App(ttk.Frame):
 
         self.write_button = ttk.Button(frame, text="Write to USB…", command=self.start_write)
         self.write_button.grid(row=row, column=0, sticky="w", pady=(10, 0))
+        self._job_buttons.append(self.write_button)
         return frame
 
     # -------------------------------------------------------------- helpers
@@ -292,13 +441,18 @@ class App(ttk.Frame):
             if path in self.modules:
                 continue
             self.modules.append(path)
-            info = patcher.read_modinfo(path)
-            self.module_list.insert("end", f"{path.name}   [{info.get('vermagic', 'no vermagic')}]")
+            info = kmod.read(path)
+            if info.error:
+                self._append("error", f"{path.name}: {info.error}")
+            self.module_list.insert("end", f"{path.name}   [{info.vermagic or 'no vermagic'}]")
             self._append("info", f"Added {path}")
-            self._append("info", f"    vermagic = {info.get('vermagic', '(none)')!r}")
-            if info.get("depends"):
-                self._append("warn", f"    depends on: {info['depends']} — those must already "
-                                     "be in the image")
+            self._append("info", f"    vermagic = {info.vermagic or '(none)'!r}")
+            self._append("info", f"    {'signed' if info.signed else 'not signed'}")
+            if info.depends:
+                self._append("warn", f"    depends on: {', '.join(info.depends)} — those must "
+                                     "already be in the image, or be injected too")
+            if info.firmware:
+                self._append("warn", f"    needs firmware: {', '.join(info.firmware)}")
 
     def remove_module(self):
         for index in reversed(list(self.module_list.curselection())):
@@ -341,9 +495,9 @@ class App(ttk.Frame):
 
     # ----------------------------------------------------------- the work
 
-    def _run_job(self, factory, button: ttk.Button, title: str):
-        self.patch_button.state(["disabled"])
-        self.write_button.state(["disabled"])
+    def _run_job(self, factory, title: str):
+        for button in self._job_buttons:
+            button.state(["disabled"])
         self.progress["value"] = 0
         self.status.set(f"{title}…")
         self._append("step", "")
@@ -361,6 +515,87 @@ class App(ttk.Frame):
 
         self.worker = threading.Thread(target=run, daemon=True)
         self.worker.start()
+
+    # ------------------------------------------------------------- inspection
+
+    def _inspect_target(self) -> Path | None:
+        """The image to inspect, or None with the user already told why not."""
+        if self._busy():
+            return None
+        image = self._current_image()
+        if not image or not image.is_file():
+            messagebox.showerror(APP_TITLE, "Select an OS image directory first.")
+            return None
+        return image
+
+    def _start_inspection(self, image: Path, title: str, **kwargs):
+        request = patcher.InspectRequest(image=image, profile=self._profile(), **kwargs)
+        self._run_job(lambda: patcher.inspect(request), title)
+
+    def run_report(self):
+        image = self._inspect_target()
+        if image:
+            self._start_inspection(image, f"Inspect {image.name}", report=True)
+
+    def run_hardware(self):
+        image = self._inspect_target()
+        if not image:
+            return
+        answer = HardwareDialog.ask(self.master, self._hardware_text, self._alias_db)
+        if answer is None:
+            return
+        text, alias_db = answer
+        self._hardware_text = text
+        self._alias_db = str(alias_db) if alias_db else ""
+        self._start_inspection(image, "Hardware coverage",
+                               hardware_text=text, alias_db=alias_db)
+
+    def run_scan(self):
+        image = self._inspect_target()
+        if not image:
+            return
+        # A directory rather than a file: the scan walks it and opens any driver
+        # archives it finds inside, so pointing at a Downloads folder works
+        # whether the driver arrived loose or in a tarball.
+        path = filedialog.askdirectory(
+            title="Select a folder of modules, or of driver archives to look inside")
+        if not path:
+            return
+        self._start_inspection(image, f"Find modules in {Path(path).name}",
+                               scan_paths=[Path(path)])
+
+    def run_find_drivers(self):
+        image = self._inspect_target()
+        if not image:
+            return
+        # The lookup itself is metadata only, so it runs without asking. Actually
+        # downloading tens of megabytes is a separate question, asked separately —
+        # and only offered once, before anything has been fetched.
+        if messagebox.askyesno(
+                APP_TITLE,
+                "Look up whether this is a stock distro kernel, and which packages "
+                "hold matching modules?\n\n"
+                "This contacts the distribution's archive over the network.\n\n"
+                "Answer No to look up only; answer Yes to also choose a folder and "
+                "download what it finds."):
+            folder = filedialog.askdirectory(title="Where should the packages be downloaded?")
+            if not folder:
+                return
+            self._start_inspection(image, "Find drivers online",
+                                   find_drivers=True, fetch_drivers=Path(folder))
+        else:
+            self._start_inspection(image, "Find drivers online", find_drivers=True)
+
+    def run_build_spec(self):
+        image = self._inspect_target()
+        if not image:
+            return
+        path = filedialog.askdirectory(title="Where should the build spec be written?")
+        if not path:
+            return
+        self._start_inspection(image, "Build spec", report=False, build_spec=Path(path))
+
+    # ------------------------------------------------------------- the stages
 
     def start_patch(self):
         if self._busy():
@@ -380,9 +615,11 @@ class App(ttk.Frame):
 
         request = PatchRequest(
             image=image, modules=list(self.modules), output=output, profile=self._profile(),
-            allow_vermagic_mismatch=self.allow_mismatch.get(), keep_xattrs=self.keep_xattrs.get())
+            allow_vermagic_mismatch=self.allow_mismatch.get(), keep_xattrs=self.keep_xattrs.get(),
+            allow_unsigned=self.allow_unsigned.get(),
+            allow_missing_deps=self.allow_missing_deps.get())
         self.last_output = output
-        self._run_job(lambda: patcher.patch(request), self.patch_button, f"Patch {image.name}")
+        self._run_job(lambda: patcher.patch(request), f"Patch {image.name}")
 
     def start_write(self):
         if self._busy():
@@ -438,7 +675,7 @@ class App(ttk.Frame):
         label = self.volume_label.get().strip() or "BOOT"
         self._run_job(
             lambda: usbwriter.write_bootable(device, Path(base), replacements, volume_label=label),
-            self.write_button, f"Write {device.node}")
+            f"Write {device.node}")
 
     def _poll_queue(self):
         try:
@@ -451,8 +688,8 @@ class App(ttk.Frame):
                     self.status.set("Done." if kind == "done" else "Failed — see log.")
                     if kind == "fail":
                         self.progress["value"] = 0
-                    self.patch_button.state(["!disabled"])
-                    self.write_button.state(["!disabled"])
+                    for button in self._job_buttons:
+                        button.state(["!disabled"])
         except queue.Empty:
             pass
         self.after(50, self._poll_queue)
@@ -465,8 +702,11 @@ def main():
     # any button handler never reaches the crash handler.
     diag.install_tk_excepthook(root)
     root.title(APP_TITLE)
-    root.geometry("940x860")
-    root.minsize(820, 640)
+    # Fixed content below the log measures ~725px now that stage 1 carries the
+    # inspection controls, so the floor is set above that with room for a few log
+    # lines — below it Tk starts clipping the controls rather than the log.
+    root.geometry("940x900")
+    root.minsize(820, 800)
     App(root)
     root.mainloop()
 

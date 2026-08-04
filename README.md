@@ -137,8 +137,26 @@ Two stages sharing one progress bar and one log:
 2. **Write bootable USB** — pick a removable device, confirm, and the boot tree is written
    with the patched initrd substituted.
 
+Stage 1 also carries four **Inspect** buttons, sitting above the module list because they
+are how you work out *which* module you need in the first place. None of them write
+anything:
+
+| Button | Does |
+|---|---|
+| **Report** | describes the image and reads the kernel's build settings and embedded `.config` |
+| **Hardware…** | opens a box to paste `lspci -nn` / `lsusb` output from the target, and reports coverage per device |
+| **Find modules…** | pick a folder of modules or driver archives; every `.ko` in it is ranked against this image |
+| **Find online…** | is this a stock distro kernel? which package holds the modules? Asks before downloading anything |
+| **Build spec…** | pick a destination; writes the recovered `.config` and build instructions there |
+
+The **Hardware…** box takes a paste rather than a file because of where that data comes
+from — a machine that will not boot. The listing gets read off a screen or copied out of a
+console far more often than it exists as a file on the disk running this tool.
+
 The log records every command run, every check made and every file touched. "Save log…"
 writes the whole transcript out.
+
+> The screenshots below predate the Inspect controls and show the older window.
 
 ### CLI
 
@@ -151,8 +169,194 @@ python3 patcher.py /path/to/image-dir -m ./igb.ko -p sgs
   -o, --output PATH             output image (default: <image>.patched)
   -p, --profile {generic,sgs}   target profile
       --allow-vermagic-mismatch inject anyway; the module will not load
+      --allow-unsigned          inject unsigned modules into an all-signed image
+      --allow-missing-deps      inject with a dependency absent from the image
       --keep-xattrs             preserve xattrs (see note below)
+
+  inspection (writes no image):
+      --report                  kernel, vermagic, module count, signing, firmware
+      --build-spec [DIR]        read the kernel's build settings; with DIR, write
+                                its .config and build instructions there
+      --hardware FILE           device listing from the target ("-" for stdin)
+      --alias-db FILE           a modules.alias to name drivers this image lacks
+      --scan PATH               rank candidate .ko files/archives (repeatable)
+      --want NAME               restrict --scan to these module names
+      --find-drivers            is this a stock distro kernel? which package has
+                                the modules? (network, metadata only)
+      --fetch-drivers DIR       download those packages into DIR and rank them
 ```
+
+## Which driver do I need, and which build of it?
+
+Injecting the right module is the easy half. The tool answers the other half from data the
+image already carries.
+
+**Which driver.** Every `.ko` declares the PCI/USB IDs it drives; `depmod` collects those
+into `modules.alias`, and drivers compiled *into* the kernel put theirs in
+`modules.builtin.modinfo`. Read all three, hand it a device listing from the target machine,
+and it reports per device whether this image can drive it:
+
+```bash
+lspci -nnmm > target.txt          # on the target, or any Linux booted on that hardware
+python3 patcher.py ./image-dir --hardware target.txt
+```
+
+```
+NOT COVERED — no driver in this image claims these  (1)
+  10ec:8168  Ethernet controller: Realtek Semiconductor Co., Ltd. RTL8111/8168
+      hint: Realtek Ethernet — r8169 (or Realtek's out-of-tree r8168)
+
+covered by a module in the image  (1)
+  8086:1533  Ethernet controller: Intel Corporation I210 Gigabit Network Connection
+      igb
+
+covered by a driver built into the kernel  (1)
+  8086:15b8  Ethernet controller: Intel Corporation Ethernet Connection (2) I219-V
+      e1000e (built into the kernel)
+```
+
+Reading `modules.builtin.modinfo` is what keeps that third case honest: without it, hardware
+that works fine because its driver is compiled in gets reported as unsupported, and you go
+off building a module you never needed.
+
+Naming the driver for hardware the image *doesn't* cover needs a mapping the image has no
+reason to contain. `--alias-db` points at a real one from any Linux system, which beats
+guessing:
+
+```bash
+python3 patcher.py ./image-dir --hardware target.txt \
+    --alias-db /lib/modules/$(uname -r)/modules.alias
+```
+
+Without one you get a coarse family hint, labelled as a hint.
+
+**Which build.** Vendor driver packs and unpacked kernel packages contain builds for many
+kernels. Point `--scan` at one and it ranks everything it finds against this image —
+directories, tarballs, zips and `.deb`s, including `.ko.xz`/`.ko.gz`/`.ko.zst`:
+
+```bash
+python3 patcher.py ./image-dir --scan ~/Downloads/driverpack --want r8169
+```
+
+```
+MATCH — vermagic is identical; these will be accepted by the kernel  (1)
+  r8169                    driverpack/r8169.ko
+
+same kernel release, different build flags — will NOT load as-is  (1)
+  ixgbe                    driverpack/ixgbe.ko
+      vermagic: 6.12.11 SMP mod_unload modversions
+      the image's kernel has preempt_rt; the module was not built with it
+```
+
+That last line is the point: a mismatch now names the build flag to change, instead of
+leaving you to diff two strings by eye.
+
+## Is there a prebuilt module at all?
+
+This question has two answers and only one of them is "go looking":
+
+- **A stock distro kernel.** The distro built the kernel and its modules in one build, so
+  its archive holds modules whose vermagic matches *by construction*. That is a lookup.
+- **A vendor or appliance kernel.** No prebuilt module exists anywhere except that vendor's
+  build machine. No archive, no database, no amount of searching will produce one — it has
+  to be compiled.
+
+`--find-drivers` tells you which of the two you are in, over the network but metadata only:
+
+```
+Kernel release: 6.1.0-19-amd64
+  Looks like a Debian kernel (amd64).
+  'amd64' is a Debian kernel flavour, and the compiler string agrees (Debian).
+
+Found 1 package(s), 65.6 MB total:
+  linux-image-6.1.0-19-amd64_6.1.82-1_amd64.deb  (65.6 MB)
+      https://snapshot.debian.org/file/2ee9caba092c6e95ac73c886d04b83af7559b2df
+      sha1 2ee9caba092c6e95ac73c886d04b83af7559b2df — will be verified
+```
+
+`--fetch-drivers DIR` then downloads those packages and runs `--scan` over what is inside
+them, so the answer lands as a ranked list of modules rather than a folder of `.deb` files.
+
+**The release string decides this, not the compiler.** The banner's compiler says what the
+*build host* was, which is a different question — appliance vendors routinely build bespoke
+kernels on Debian boxes, so `gcc (Debian 12.2.0-14)` on a kernel called `6.12.11` means
+someone compiled it on Debian, not that Debian ships it. Getting that backwards would send
+you hunting an archive for a package that was never published, so the tool says it plainly:
+
+```
+Kernel release: 6.12.11
+  !! Not a stock distro kernel.
+  built on Debian, but '6.12.11' is not a Debian package name — this is a custom
+  kernel compiled on a Debian machine, not one Debian ships.
+```
+
+Only Debian and Ubuntu are resolved to actual URLs, because both publish a machine-readable
+API that can be queried rather than scraped — Debian's also returns a SHA-1, which the
+download is checked against. The RHEL rebuilds, Alpine and Arch are identified and named
+down to the exact package, but no URL is constructed for them: their layouts vary by
+rebuild vendor and mirror, and an untested URL fails later, further from the cause, and
+looks like a bug in this tool.
+
+## Asking the kernel instead of guessing
+
+The initrd only implies what its kernel expects. The kernel image itself — normally sitting
+right next to the initrd as `boot/vmlinuz` — states it outright, in two places:
+
+- **The build banner.** Every kernel carries `Linux version <release> (<builder>)
+  (<compiler>) <build>` in its rodata. That is the **exact compiler**, which does not appear
+  in vermagic at all, so a compiler mismatch is never caught at load time.
+- **The embedded config.** A kernel built with `CONFIG_IKCONFIG` carries its whole `.config`,
+  gzipped, between the markers `IKCFG_ST` and `IKCFG_ED`.
+
+Both usually sit inside a compressed payload, so the tool does what the kernel's own
+`scripts/extract-ikconfig` does: scan for each compression format's signature, decompress
+from every offset that matches, and look again in the result. gzip, xz, lzma, bzip2 and zstd
+are handled; lz4 and lzo are not.
+
+```bash
+python3 patcher.py ./image-dir --report
+```
+
+```
+Kernel image: demo/boot/vmlinuz-6.12.11
+  release:  6.12.11
+  compiler: gcc (Debian 12.2.0-14) 12.2.0, GNU ld 2.40
+  config:   embedded, 9 settings recovered
+
+What this means for a module you inject:
+  !! CONFIG_MODULE_SIG_FORCE=y — this kernel loads ONLY signed modules...
+  !  CONFIG_MODVERSIONS=y — matching the vermagic string is not enough...
+  !  CONFIG_TRIM_UNUSED_KSYMS=y — this kernel exports only the symbols its own...
+```
+
+`CONFIG_TRIM_UNUSED_KSYMS` is the one people lose days to: the kernel exports only the
+symbols its own built-in code and modules use, so an out-of-tree driver can fail to resolve a
+symbol that plainly exists in the source.
+
+`--build-spec DIR` writes the recovered `.config`, a `build-spec.json`, and a
+`HOW-TO-BUILD.md` with the exact steps. The `.config` is the valuable artefact — it is the
+one thing that cannot be reconstructed from anywhere else, and without it "build against a
+matching kernel tree" is advice rather than an instruction.
+
+## Three more ways a module fails at boot
+
+Matching the vermagic is necessary, not sufficient. Alongside that check, the patch path now
+refuses or flags:
+
+- **Unsigned into a kernel that requires signatures.** An unsigned module is refused with
+  `ENOKEY` however well the vermagic matches, and there is no fixing that without the signing
+  key. When the kernel's config can be read this is a **fact** — `CONFIG_MODULE_SIG_FORCE=y`.
+  When it can't, it falls back to an **inference**: if every module the vendor shipped is
+  signed, the kernel very likely enforces it. The log says which of the two you got, because
+  a refusal you can check is worth more than one you can't. Blocks; `--allow-unsigned`
+  overrides.
+- **Missing firmware.** A driver declaring `firmware=` whose blob is absent from
+  `/lib/firmware` loads and then fails to bring the device up. Warns, and names the blob.
+- **Missing or misordered dependencies.** `insmod` does not resolve dependencies the way
+  `modprobe` does — it fails outright on an unresolved symbol. Dependencies are checked
+  against the image's modules *and* its built-in drivers, and the injected modules are
+  ordered so each is loaded after the ones it needs. Blocks when the image ships a
+  `modules.builtin` to check against, warns when it doesn't; `--allow-missing-deps` overrides.
 
 ## Tests
 
@@ -168,6 +372,21 @@ Covered: setuid/ownership/root-inode preservation, module injection, hook placem
 indentation, hook placement *inside* the correct init branch, idempotency across three
 consecutive re-patches, vermagic blocking and override, input immutability, output-overwrite
 refusal, non-SquashFS rejection, and compressor/block-size preservation.
+
+The discovery suite builds a real (if minimal) ELF object with a genuine `.modinfo` section,
+rather than only the byte-scan stand-in, so the parsing path that runs against every real
+module is the one under test. Covered: modinfo/alias/firmware extraction, signature
+detection, compressed modules, modalias tokenising and three-state matching, `lspci -nn` /
+`lspci -nnmm` / `lsusb` / modalias / bare-pair parsing, module-vs-built-in-vs-uncovered
+verdicts, external alias databases, candidate ranking through directories and archives, and
+each of the three boot-time checks with its override.
+
+The kernel-spec suite builds synthetic kernels carrying a banner and an `IKCFG` payload, and
+runs the extractor against each of them wrapped in gzip, xz, lzma and bzip2 — a real kernel
+is a stub around a compressed payload, so a test that only fed it an uncompressed blob would
+never exercise the part that does the work. It also asserts the fact-beats-inference
+behaviour in both directions: a config saying signing is *off* must overrule an all-signed
+image, and with no kernel present the inference must still apply.
 
 CI runs the suite on Ubuntu and macOS on every push.
 

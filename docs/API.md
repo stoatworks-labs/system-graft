@@ -21,7 +21,11 @@ in the [README](../README.md)** and are not restated here.
 
 ```
 system-graft <image_dir> [-m MODULE]... [-o OUTPUT] [-p PROFILE]
-             [--allow-vermagic-mismatch] [--keep-xattrs]
+             [--allow-vermagic-mismatch] [--allow-unsigned]
+             [--allow-missing-deps] [--keep-xattrs]
+
+system-graft <image_dir> [--report] [--build-spec [DIR]] [--hardware FILE]
+             [--alias-db FILE] [--scan PATH]... [--want NAME]... [--limit N]
 ```
 
 | Flag | Default | Notes |
@@ -31,8 +35,33 @@ system-graft <image_dir> [-m MODULE]... [-o OUTPUT] [-p PROFILE]
 | `-o` / `--output` | derived | output initrd path |
 | `-p` / `--profile` | `generic` | see §4 |
 | `--allow-vermagic-mismatch` | off | **the override — see below** |
+| `--allow-unsigned` | off | inject unsigned modules into an image whose modules are all signed |
+| `--allow-missing-deps` | off | inject with a declared dependency absent from the image |
 | `--keep-xattrs` | off | **see below** |
 | `--version` | | |
+
+### Inspection mode
+
+Any of `--report`, `--hardware` or `--scan` puts the tool in a read-only mode: it extracts
+the image, answers every question asked in one pass, and **writes no output image**. `-m` is
+not required there.
+
+| Flag | Notes |
+|---|---|
+| `--report` | kernel version, decomposed vermagic, module count, how many are signed, built-in driver count, firmware, and the kernel image's own build settings |
+| `--build-spec [DIR]` | read the kernel's build banner and embedded `.config`; given a directory, write `config`, `build-spec.json` and `HOW-TO-BUILD.md` into it |
+| `--hardware FILE` | device listing from the target machine; `-` reads stdin. Accepts `lspci -nn`, `lspci -nnmm`, `lsusb`, raw modalias strings and bare `vendor:device` pairs, mixed |
+| `--alias-db FILE` | a `modules.alias` from any Linux system, used to name drivers for hardware this image does not cover |
+| `--find-drivers` | identify the kernel and locate matching module packages. **Network**, metadata only — downloads nothing |
+| `--fetch-drivers DIR` | download those packages into DIR and rank what is inside them. **Network**, tens of MB |
+| `--scan PATH` | **repeatable**; directory or archive of candidate modules to rank against this image |
+| `--want NAME` | **repeatable**; restrict `--scan` to these module names |
+| `--limit N` | cap on modules read during `--scan` (default 5000) |
+
+`--hardware` reports three states, not two. A pattern that matches everything the input
+provided but requires a subsystem ID the input lacked — which is every `lspci -nn` run
+without `-mm` — is reported **UNCERTAIN**, because reporting it as a miss would turn "I
+cannot tell" into "unsupported".
 
 ### `--allow-vermagic-mismatch`
 
@@ -141,6 +170,8 @@ class PatchRequest:
     allow_vermagic_mismatch: bool = False
     keep_xattrs: bool = False
     add_to_modules_dep: bool = True
+    allow_unsigned: bool = False
+    allow_missing_deps: bool = False
 
 def patch(req: PatchRequest)  # generator
 ```
@@ -154,7 +185,134 @@ both iterate *and* handle the exception; draining the generator without catching
 
 Useful helpers: `require_tools()`, `tool_version()`, `is_squashfs()`, `sniff_format()`,
 `find_images()`, `probe_squashfs()`, `read_modinfo()`, `find_image_modules()`,
-`kernel_versions()`, `build_ownership_map()`, `sha256()`.
+`kernel_versions()`, `build_ownership_map()`, `sha256()`, `extracted()`, `image_vermagic()`.
+
+```python
+@dataclass
+class InspectRequest:
+    image: Path
+    profile: Profile
+    report: bool = False
+    build_spec: Path | None = None
+    hardware_text: str = ""
+    alias_db: Path | None = None
+    scan_paths: list[Path] = field(default_factory=list)
+    want: list[str] = field(default_factory=list)
+    limit: int = 5000
+
+def inspect(req: InspectRequest)  # generator
+```
+
+**`inspect()` yields `(fraction, level, message)` exactly as `patch()` does**, and writes no
+image. That shared shape is the whole contract between the core and any front end — the GUI
+drives either through one code path, and the CLI prints either. A new long-running operation
+should be a generator of the same shape rather than something that prints; the moment it
+prints, the GUI cannot show it.
+
+Everything requested is answered from a single extract, because `unsquashfs` on a large
+initrd is the slow part.
+
+`extracted(image)` is a context manager yielding a temporary extracted root and cleaning up
+after itself — the read-only counterpart to the patch path's inline extract.
+
+`read_modinfo()` still returns a flat single-value dict. Anything needing *all* values of a
+multi-valued key (`alias`, `firmware`, `parm`) must use `kmod.read()` instead;
+`find_image_modules()` now returns `kmod.ModInfo` objects rather than `(Path, dict)` pairs.
+
+### `kmod`
+
+```python
+def read(path: Path) -> ModInfo          # never raises for a parse problem; see .error
+def parse_vermagic(text: str) -> Vermagic
+def compare_vermagic(module: str, image: str) -> tuple[bool, list[str]]
+def order_by_depends(infos: list[ModInfo]) -> tuple[list[ModInfo], list[str]]
+```
+
+`ModInfo` exposes `.name`, `.vermagic`, `.aliases`, `.firmware`, `.depends`, `.signed`,
+`.signature`, `.is_elf`, `.error`, plus `.get(key)` / `.all(key)` / `.flat()`.
+
+Reading is total: a malformed, truncated or non-ELF file yields whatever could be recovered
+with `.error` set, rather than raising. These files come from wherever the user found them,
+so "I could not parse it" is a finding to report.
+
+### `hardware`
+
+```python
+def parse_devices(text: str) -> tuple[list[Device], list[str]]
+def build_index(root: Path, kver: str) -> CoverageIndex
+def load_alias_db(path: Path, index: CoverageIndex) -> int
+def assess(devices: list[Device], index: CoverageIndex) -> list[Finding]
+def format_report(findings: list[Finding], index: CoverageIndex) -> str
+```
+
+`Finding.status` is one of `COVERED_MODULE`, `COVERED_BUILTIN`, `UNCERTAIN`, `UNCOVERED`.
+`match_alias()` returns `MATCH_YES` / `MATCH_NO` / `MATCH_UNKNOWN` — see the three-state note
+in §1.
+
+`report_lines()` returns `(level, line)` pairs and `format_report()` joins them.
+`sources.scan_lines()` and `kernelspec.spec_lines()` do the same. Rendering severity is
+decided once, where the content is produced — never by a front end sniffing at the text.
+
+### `sources`
+
+```python
+def scan(paths, target_vermagic, want=None, limit=5000) -> tuple[list[Candidate], list[str]]
+def format_scan(candidates, target_vermagic, notes) -> str
+```
+
+`Candidate.verdict` is one of `EXACT`, `SAME_RELEASE`, `OTHER_RELEASE`, `UNREADABLE`.
+Modules extracted from archives live in a temp directory that is kept only when an exact
+match was found in one; the returned notes say where.
+
+### `kernelspec`
+
+```python
+def find_kernel(*search_dirs: Path) -> Path | None
+def analyse(path: Path) -> KernelSpec
+def implications(spec: KernelSpec) -> list[tuple[str, str]]
+def write_build_spec(spec: KernelSpec, vermagic: str, dest: Path) -> list[Path]
+```
+
+`KernelSpec` carries `.release`, `.builder`, `.compiler`, `.build`, `.config` (a dict),
+`.config_text` and `.notes`, plus `.has_config` / `.get(key)` / `.is_set(key)`.
+
+`parse_config()` records `# CONFIG_X is not set` as `"n"` rather than dropping it. **The
+difference between "off" and "absent" is load-bearing**: `is_set("CONFIG_MODULE_SIG_FORCE")`
+returning `False` because the config says it is off is a fact, whereas the key being missing
+means the config could not be read at all. `patch()` distinguishes these — see the signing
+check — and anything reading `.config` must too.
+
+`implications()` returns `(level, message)` pairs for settings that change whether a module
+loads or how it must be built, and returns nothing at all when there is no config. It is not
+a config dump; the full config is written by `write_build_spec()`.
+
+`analyse()` never raises. A file that is not a kernel, or one compressed with lz4/lzo, comes
+back with empty fields and an explanatory note.
+
+### `distro`
+
+**The only module that touches the network.** Nothing else in the tool makes an outbound
+request, and both entry points are opt-in per invocation.
+
+```python
+def identify(release: str, compiler: str = "", arch: str = "") -> Target
+def packages_for(target: Target) -> list[PackageRef]
+def resolve(target: Target) -> Resolution          # network: metadata only
+def download(item: Download, dest_dir: Path, progress=None) -> Path
+```
+
+`Target.is_stock` is false for a vendor kernel, and `resolve()` returns no downloads with a
+note explaining that none exist — that is an answer, not a failure, and the most important
+one here.
+
+**`identify()` decides from the release string, not the compiler.** The compiler names the
+*build host*; a bespoke kernel compiled on a Debian machine is not a Debian kernel and its
+archive holds nothing. The compiler only corroborates or breaks the Debian/Ubuntu
+ambiguity, and any verdict resting on it alone is labelled a guess in `Target.evidence`.
+
+`download()` writes to a `.part` and renames only once complete and checksum-verified, so an
+interrupted or corrupted download can never be mistaken for a usable package. It returns an
+existing file untouched rather than refetching.
 
 ### `usbwriter`
 
