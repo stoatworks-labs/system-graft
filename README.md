@@ -57,8 +57,6 @@ sequence, and repacks it faithfully.
 
 All builds, checksums and release notes: [github.com/stoatworks-labs/system-graft/releases](https://github.com/stoatworks-labs/system-graft/releases).
 
-These builds are unsigned, so macOS and Windows each warn once on first launch — see [Unsigned builds — macOS Gatekeeper](#unsigned-builds--macos-gatekeeper) for the one-time fix.
-
 <!-- downloads:end -->
 
 ## Why this isn't just `unsquashfs` + `mksquashfs`
