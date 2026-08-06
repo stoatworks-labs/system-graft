@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-07
+
 Finding the right driver, not just injecting one you already have.
 
 ### Added
