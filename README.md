@@ -57,6 +57,8 @@ sequence, and repacks it faithfully.
 
 All builds, checksums and release notes: [github.com/stoatworks-labs/system-graft/releases](https://github.com/stoatworks-labs/system-graft/releases).
 
+macOS builds are signed and notarised by Apple, so they open normally — no Gatekeeper warning and no quarantine step.
+
 <!-- downloads:end -->
 
 ## Why this isn't just `unsquashfs` + `mksquashfs`
