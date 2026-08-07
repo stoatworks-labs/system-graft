@@ -29,15 +29,15 @@ sequence, and repacks it faithfully.
 
 ## Download
 
-**[v0.1.1](https://github.com/stoatworks-labs/system-graft/releases/tag/v0.1.1)** — prebuilt for macOS and Linux. Pick your platform:
+**[v0.2.0](https://github.com/stoatworks-labs/system-graft/releases/tag/v0.2.0)** — prebuilt for macOS and Linux. Pick your platform:
 
 <details>
 <summary><b>macOS</b> — Apple Silicon</summary>
 
 | Build | Download | Size |
 | --- | --- | --- |
-| Apple Silicon · .dmg disk image | [`system-graft-0.1.1-macos-arm64.dmg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-macos-arm64.dmg) | 21 MB |
-| Apple Silicon · .pkg installer | [`system-graft-0.1.1-macos-arm64.pkg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-macos-arm64.pkg) | 11 MB |
+| Apple Silicon · .dmg disk image | [`system-graft-0.2.0-macos-arm64.dmg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.2.0/system-graft-0.2.0-macos-arm64.dmg) | 25 MB |
+| Apple Silicon · .pkg installer | [`system-graft-0.2.0-macos-arm64.pkg`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.2.0/system-graft-0.2.0-macos-arm64.pkg) | 11 MB |
 
 </details>
 
@@ -46,12 +46,12 @@ sequence, and repacks it faithfully.
 
 | Build | Download | Size |
 | --- | --- | --- |
-| x64 · .deb package (Debian/Ubuntu) | [`system-graft_0.1.1_amd64.deb`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft_0.1.1_amd64.deb) | 25 MB |
-| ARM64 · .deb package (Debian/Ubuntu) | [`system-graft_0.1.1_arm64.deb`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft_0.1.1_arm64.deb) | 24 MB |
-| x64 · .rpm package (Fedora/RHEL) | [`system-graft-0.1.1-1.x86_64.rpm`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-1.x86_64.rpm) | 26 MB |
-| ARM64 · .rpm package (Fedora/RHEL) | [`system-graft-0.1.1-1.aarch64.rpm`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-1.aarch64.rpm) | 25 MB |
-| x64 · .tar.gz archive | [`system-graft-0.1.1-linux-x86_64.tar.gz`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-linux-x86_64.tar.gz) | 25 MB |
-| ARM64 · .tar.gz archive | [`system-graft-0.1.1-linux-aarch64.tar.gz`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.1.1/system-graft-0.1.1-linux-aarch64.tar.gz) | 24 MB |
+| x64 · .deb package (Debian/Ubuntu) | [`system-graft_0.2.0_amd64.deb`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.2.0/system-graft_0.2.0_amd64.deb) | 25 MB |
+| ARM64 · .deb package (Debian/Ubuntu) | [`system-graft_0.2.0_arm64.deb`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.2.0/system-graft_0.2.0_arm64.deb) | 25 MB |
+| x64 · .rpm package (Fedora/RHEL) | [`system-graft-0.2.0-1.x86_64.rpm`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.2.0/system-graft-0.2.0-1.x86_64.rpm) | 26 MB |
+| ARM64 · .rpm package (Fedora/RHEL) | [`system-graft-0.2.0-1.aarch64.rpm`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.2.0/system-graft-0.2.0-1.aarch64.rpm) | 25 MB |
+| x64 · .tar.gz archive | [`system-graft-0.2.0-linux-x86_64.tar.gz`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.2.0/system-graft-0.2.0-linux-x86_64.tar.gz) | 25 MB |
+| ARM64 · .tar.gz archive | [`system-graft-0.2.0-linux-aarch64.tar.gz`](https://github.com/stoatworks-labs/system-graft/releases/download/v0.2.0/system-graft-0.2.0-linux-aarch64.tar.gz) | 25 MB |
 
 </details>
 
