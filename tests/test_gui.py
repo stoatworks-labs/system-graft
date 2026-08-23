@@ -17,6 +17,7 @@ and the queue is what carries the evidence.
 
 from __future__ import annotations
 
+import gc
 import queue
 import shutil
 import sys
@@ -50,11 +51,46 @@ def require_tk():
     return root
 
 
-class GuiTestCase(unittest.TestCase):
+class TkTestCase(unittest.TestCase):
+    """Shared Tk teardown. Both test classes below open their own root."""
+
+    def _teardown_tk(self):
+        """Tear the interpreter down in an order that cannot abort the process.
+
+        A plain `self.root.destroy` is not enough. unittest holds every
+        TestCase alive until the whole run ends, so `self.app` — and the
+        BooleanVars and StringVars hanging off it — outlives the root that
+        created them, and Python finalises them at some arbitrary later point.
+        Whichever thread happens to be running the collection is the thread
+        Tcl gets torn down from, and if that is not the one that created the
+        interpreter, Tcl aborts the process:
+
+            Tcl_AsyncDelete: async handler deleted by the wrong thread
+
+        which is SIGABRT, exit 134, reported *after* every test has already
+        printed ok. That is what the macOS job had been failing on since
+        19 August while the Linux job stayed green — Tk 8.6 in the python.org
+        build is far readier to abort than a Homebrew Tk 9, so it does not
+        reproduce on a developer machine.
+
+        So: join the worker first, so no collection can land on it, then
+        destroy, drop the references and collect right here — on the main
+        thread, inside a call the main thread is making.
+        """
+        worker = getattr(getattr(self, "app", None), "worker", None)
+        if worker is not None and worker.is_alive():
+            worker.join(60)
+        self.root.destroy()
+        self.app = None
+        self.root = None
+        gc.collect()
+
+
+class GuiTestCase(TkTestCase):
     def setUp(self):
         require_squashfs()
         self.root = require_tk()
-        self.addCleanup(self.root.destroy)
+        self.addCleanup(self._teardown_tk)
         import gui
         self.gui = gui
 
@@ -219,12 +255,12 @@ class GuiTestCase(unittest.TestCase):
         self.assertFalse(info.signed)
 
 
-class HardwareDialogTests(unittest.TestCase):
+class HardwareDialogTests(TkTestCase):
     """The dialog's validation, which is the part with logic in it."""
 
     def setUp(self):
         self.root = require_tk()
-        self.addCleanup(self.root.destroy)
+        self.addCleanup(self._teardown_tk)
         import gui
         self.gui = gui
         self.tmp = Path(tempfile.mkdtemp(prefix="sg-dlg-"))
