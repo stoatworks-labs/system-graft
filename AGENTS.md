@@ -155,3 +155,10 @@ Log via `diag.log`, not `print`. `diag.init(...)` goes before anything that can 
 apps must also call `diag.install_tk_excepthook(root)` before any callback can run —
 Tkinter swallows callback exceptions, so without it a fault in a button handler never
 reaches the crash handler. See [docs/diagnostics.md](docs/diagnostics.md).
+
+## Notes
+
+`docs/NOTES.md` carries this repo's working notes — current status, decisions
+already made, and the traps that have actually bitten. Read it before changing
+anything non-obvious. Cross-cutting fleet knowledge lives in
+[fleet-notes](https://github.com/stoatworks-labs/fleet-notes).
