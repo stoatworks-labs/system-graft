@@ -315,13 +315,23 @@ def write_bootable(device: Device, image_dir: Path, replacements: dict[str, Path
 
     label = (volume_label or "BOOT").upper()[:11]
 
+    # Set on the macOS path; the Linux path types the partition at creation.
+    volume_slice = None
+    volume_index = None
+
     if IS_MAC:
         yield 0.10, "step", f"Unmounting {device.path}"
         proc = _run(["diskutil", "unmountDisk", "force", device.path], check=False)
         yield 0.12, "info", "  " + (proc.stdout or proc.stderr).strip()
 
         yield 0.15, "step", "Partitioning (GPT) and formatting FAT32"
-        cmd = ["diskutil", "partitionDisk", device.path, "GPT", "MS-DOS FAT32", label, "100%"]
+        # -noEFI, or diskutil puts a 209.7 MB EFI System Partition at slice 1 and
+        # our volume at slice 2 — on anything of USB-stick size. We want the whole
+        # stick to be the one FAT32 volume, and we want THAT volume to be the ESP,
+        # which is the layout the firmware fallback path (EFI/BOOT/BOOTX64.EFI)
+        # looks for. An Apple ESP alongside it is 209.7 MB of nothing.
+        cmd = ["diskutil", "partitionDisk", device.path, "GPT",
+               "-noEFI", "MS-DOS FAT32", label, "100%"]
         yield 0.16, "cmd", "  $ " + " ".join(cmd)
         proc = _run(cmd, check=False, timeout=300)
         if proc.returncode != 0:
@@ -330,19 +340,13 @@ def write_bootable(device: Device, image_dir: Path, replacements: dict[str, Path
             if line.strip():
                 yield 0.30, "info", "  " + line.strip()
 
-        if set_esp_type and shutil.which("sgdisk"):
-            yield 0.33, "step", "Marking partition as EFI System"
-            proc = _run(["sudo", "-n", "sgdisk", "-t", "1:ef00", device.path], check=False)
-            if proc.returncode == 0:
-                yield 0.34, "ok", "  partition type set to ef00"
-            else:
-                yield 0.34, "info", ("  skipped (needs sudo); Microsoft Basic Data works on "
-                                     "almost all firmware for removable media")
-        elif set_esp_type:
-            yield 0.34, "info", ("  sgdisk not installed — leaving partition type as Microsoft "
-                                 "Basic Data (fine for removable media)")
+        # By NAME, never by number. See find_volume_slice: assuming s1 is what
+        # left an erased, un-ejected stick behind on every device big enough to
+        # get an ESP.
+        volume_slice, volume_index = _locate_volume(device.node, label)
+        yield 0.33, "info", f"  volume is {volume_slice}"
 
-        mount_point = _wait_for_mount(device.node)
+        mount_point = _wait_for_mount(volume_slice)
         yield 0.36, "ok", f"  mounted at {mount_point}"
 
     elif IS_LINUX:
@@ -397,6 +401,27 @@ def write_bootable(device: Device, image_dir: Path, replacements: dict[str, Path
 
         for rel in sorted(replacements):
             yield 0.96, "ok", f"  patched file present on media: {rel}"
+
+        # Retype LAST, and to the slice actually holding the volume. This used to
+        # run before the mount and against a hardcoded partition 1 — which on a
+        # real stick is Apple's ESP (already ef00), leaving our FAT32 volume at
+        # partition 2 as Microsoft Basic Data while the log claimed otherwise.
+        # Doing it after the files are written and the volume unmounted also
+        # keeps it clear of the auto-mount this used to depend on.
+        if IS_MAC and set_esp_type and volume_index:
+            if shutil.which("sgdisk"):
+                yield 0.97, "step", f"Marking partition {volume_index} as EFI System"
+                _run(["diskutil", "unmount", volume_slice], check=False)
+                proc = _run(["sudo", "-n", "sgdisk", "-t", f"{volume_index}:ef00",
+                             device.path], check=False)
+                if proc.returncode == 0:
+                    yield 0.98, "ok", f"  partition {volume_index} type set to ef00"
+                else:
+                    yield 0.98, "info", ("  skipped (needs sudo); Microsoft Basic Data works "
+                                         "on almost all firmware for removable media")
+            else:
+                yield 0.98, "info", ("  sgdisk not installed — leaving partition type as "
+                                     "Microsoft Basic Data (fine for removable media)")
     finally:
         if IS_MAC:
             _run(["diskutil", "eject", device.path], check=False)
@@ -407,11 +432,78 @@ def write_bootable(device: Device, image_dir: Path, replacements: dict[str, Path
                        "Safe to remove.")
 
 
-def _wait_for_mount(node: str, timeout: float = 30.0) -> str:
+def find_volume_slice(plist_bytes: bytes, node: str, label: str):
+    """Pick the slice holding our FAT32 volume out of `diskutil list -plist`.
+
+    Never assume it is `s1`. `diskutil partitionDisk <dev> GPT ...` creates a
+    209.7 MB EFI System Partition as slice 1 and puts the requested volume at
+    slice 2 — but only above a size threshold. Measured: a 256 MB and a 2 GB
+    image get the volume at s1; an 8 GB and a 32 GB one get `EFI` at s1 and the
+    volume at s2. So every real USB stick lands the volume at s2 and every test
+    against a small disk image lands it at s1, which is exactly why waiting on
+    s1 was never seen to fail: macOS does not auto-mount the ESP, so the wait
+    timed out — after the disk had already been erased.
+
+    Matches on the volume name we just asked for, then falls back to the first
+    slice that is not an EFI System Partition. Returns (identifier, index) or
+    (None, None).
+
+    Split out from the diskutil call so it can be tested against captured
+    output without a device.
+    """
+    try:
+        info = plistlib.loads(plist_bytes)
+    except Exception:
+        return None, None
+
+    slices = []
+    for disk in info.get("AllDisksAndPartitions", []):
+        if disk.get("DeviceIdentifier") != node.rsplit("/", 1)[-1]:
+            continue
+        slices = disk.get("Partitions", []) or []
+        break
+
+    def index_of(identifier):
+        tail = identifier.rsplit("s", 1)[-1]
+        return int(tail) if tail.isdigit() else None
+
+    for part in slices:
+        if (part.get("VolumeName") or "").upper() == label.upper():
+            ident = part.get("DeviceIdentifier")
+            return ident, index_of(ident)
+
+    for part in slices:
+        if part.get("Content") == "EFI" or (part.get("VolumeName") or "") == "EFI":
+            continue
+        ident = part.get("DeviceIdentifier")
+        if ident:
+            return ident, index_of(ident)
+
+    return None, None
+
+
+def _locate_volume(node: str, label: str, timeout: float = 30.0):
+    """Wait for the partition table to appear and return (identifier, index)."""
+    deadline = time.time() + timeout
+    last = b""
+    while time.time() < deadline:
+        proc = _run(["diskutil", "list", "-plist", node], check=False)
+        last = (proc.stdout or "").encode()
+        ident, index = find_volume_slice(last, node, label)
+        if ident:
+            return ident, index
+        time.sleep(0.5)
+    raise USBError(
+        f"no FAT32 volume appeared on {node} within {timeout:.0f}s — the device has been "
+        f"partitioned but nothing was written to it"
+    )
+
+
+def _wait_for_mount(slice_id: str, timeout: float = 30.0) -> str:
     """diskutil returns before the new volume is mounted; wait for it."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        proc = _run(["diskutil", "info", "-plist", f"{node}s1"], check=False)
+        proc = _run(["diskutil", "info", "-plist", slice_id], check=False)
         try:
             info = plistlib.loads(proc.stdout.encode())
         except Exception:
@@ -420,7 +512,7 @@ def _wait_for_mount(node: str, timeout: float = 30.0) -> str:
         if mount:
             return mount
         time.sleep(0.5)
-    raise USBError(f"{node}s1 did not mount within {timeout:.0f}s")
+    raise USBError(f"{slice_id} did not mount within {timeout:.0f}s")
 
 
 # ------------------------------------------------------------------- CLI
