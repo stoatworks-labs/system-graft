@@ -24,16 +24,16 @@ Three separate claims that are easy to collapse into one:
 
 | | Evidence |
 |---|---|
-| **The patch path** — injecting modules into the initrd | **16 tests, run on Ubuntu and macOS in CI**, and exercised against a **real appliance firmware image**. Genuinely well-evidenced. |
-| **The USB writer** | Only ever run against an **attached disk image — never a physical stick.** |
-| **The result booting** | **No image produced by this tool has ever been booted on real hardware.** |
-| **The Linux write path** | **Implemented and completely untested.** |
+| **The patch path** — injecting modules into the initrd | **120 tests, run on Ubuntu and macOS in CI**, and exercised against a **real appliance firmware image**. Genuinely well-evidenced. |
+| **The USB writer** | macOS and Linux, each only ever run against an **attached disk image — never a physical stick.** |
+| **The result booting** | A patched Waves SGS 16.5 image **booted in a KVM virtual machine** (OVMF, Q35) and the three injected drivers loaded and passed traffic. **Never on real hardware.** |
 
-So: **the transformation is well tested, the delivery mechanism largely isn't, and the end result
-has never been proven to boot.** Plan for the possibility that the stick doesn't boot, and keep
-the original image.
+So: **the transformation is well tested, the delivery mechanism has only been proven against
+disk images, and the result has booted in a VM but never on a physical machine.** Plan for the
+possibility that the stick doesn't boot, and keep the original image.
 
-macOS is the tested platform for writing. Windows isn't supported.
+macOS and Linux are the tested platforms for writing. Windows isn't supported for writing; the
+patch path works under MSYS2 with `MSYS=winsymlinks:lnk` set.
 
 ---
 

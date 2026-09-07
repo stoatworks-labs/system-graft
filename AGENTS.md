@@ -34,7 +34,7 @@ Rules for working on this repo:
 
 Three separate claims, often collapsed into one:
 
-- **The patch path** (injecting modules into the initrd) is covered by **118 tests, run on
+- **The patch path** (injecting modules into the initrd) is covered by **120 tests, run on
   Ubuntu and macOS in CI**, and has been exercised against a **real appliance firmware
   image**. This part is genuinely well-evidenced.
 - **The archive lookups** were verified by hand against the live Debian snapshot and
@@ -50,12 +50,19 @@ Three separate claims, often collapsed into one:
   having been tried. In particular the IKCFG extractor has only ever unwrapped payloads
   this repo's own tests compressed.
 - **The USB writer** has only ever been run against an **attached disk image, never a
-  physical stick**.
-- **No image produced by this tool has ever been booted on real hardware.**
-- **The Linux write path is implemented but completely untested.**
+  physical stick** — on macOS and, since 2026-09-07, on Linux (a loop device attached with
+  `losetup -P`, `--allow-virtual`).
+- **A produced image has booted in a virtual machine, never on real hardware.** On
+  2026-09-07 the Waves SGS 16.5 initrd, patched with `mii`, `8139cp` and `vmxnet3` built
+  against its own kernel, booted under KVM/OVMF; all three loaded and the two emulated NICs
+  they drive passed traffic. The same initrd patched on Windows under MSYS2 booted the same
+  way. The unpatched image was the control. Details in `docs/NOTES.md`.
+- **Windows** runs the patch path under MSYS2 only (`MSYS=winsymlinks:lnk`); writing is
+  unsupported there and the release workflow deliberately builds nothing for it.
 
-So: the transformation is well tested, the delivery mechanism largely isn't, and the end
-result has never been proven to boot. Don't let a summary compress that into "tested".
+So: the transformation is well tested, the delivery mechanism is proven against disk images
+only, and the result has booted in a VM but not on a machine. Don't let a summary compress
+that into "tested".
 
 ## 4. Layout
 

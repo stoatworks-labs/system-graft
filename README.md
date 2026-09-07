@@ -3,13 +3,14 @@
 ### Driver injector for SquashFS initrd images
 
 > **AI-assisted project.** This codebase was created with [Claude](https://claude.com/claude-code)
-> (Anthropic), directed and reviewed by a human author. The patch path is covered by 16
+> (Anthropic), directed and reviewed by a human author. The patch path is covered by 120
 > tests run on Ubuntu and macOS in CI, and has been exercised against a real appliance
-> firmware image. The USB writer has only ever been run against an **attached disk image,
-> never a physical stick**, and **no image produced by this tool has been booted on real
-> hardware**. The Linux write path is implemented but **untested**. This tool repartitions
-> and erases block devices — read the safety notes and confirm the target twice before
-> using it on anything you care about.
+> firmware image. An image it produced — a Waves SGS 16.5 initrd with three injected
+> drivers — has been **booted in a KVM virtual machine**, where the injected drivers loaded
+> and drove the emulated NICs; **no image has been booted on real hardware**. The USB
+> writer, on macOS and on Linux, has only ever been run against an **attached disk image,
+> never a physical stick**. This tool repartitions and erases block devices — read the
+> safety notes and confirm the target twice before using it on anything you care about.
 
 Inject out-of-tree kernel modules into a SquashFS initrd, add a load hook to the image's
 init scripts, and write the result to bootable removable media.
@@ -477,9 +478,17 @@ This code can destroy a disk, so:
 
 ### Platform support
 
-macOS is the tested path (`diskutil`). Linux is implemented (`sgdisk`/`mkfs.vfat`/`mount`,
-requires root) but **has not been tested** — review before trusting it. Windows is not
-supported.
+macOS (`diskutil`) and Linux (`sgdisk`/`mkfs.vfat`/`mount`, requires root) are both tested
+paths — against attached disk images. On Linux the image is a loop device: attach it with
+`losetup -P` so the kernel scans its partitions, then pass `--allow-virtual`.
+
+Windows is not supported for writing. The patch path does run under
+[MSYS2](https://www.msys2.org/) with its `squashfs-tools` and `python` packages, provided
+`MSYS=winsymlinks:lnk` is set in the environment (the default symlink emulation cannot create
+a link to a target that does not exist yet, and an initrd is full of those). An initrd
+patched that way booted identically to one patched on Linux. Plain Windows Python can run
+the inspection commands (`--report`, `--build-spec`, `--hardware`, `--scan`) with MSYS2's
+`usr\bin` on `PATH`; patching from it has not been tried.
 
 ## Notes and limits
 

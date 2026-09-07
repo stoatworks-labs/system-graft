@@ -151,8 +151,8 @@ accepts on removable media. So the partition type silently depends on whether el
 **Legacy BIOS is not supported** — that would need a boot sector (`syslinux --install`), which
 this tool does not install. Nothing stops you doing it afterwards.
 
-**macOS is the tested path** (`diskutil`). **Linux is implemented and untested**
-(`sgdisk`/`mkfs.vfat`/`mount`, requires root). **Windows is not supported.**
+**macOS** (`diskutil`) and **Linux** (`sgdisk`/`mkfs.vfat`/`mount`, requires root) are both
+tested paths, against attached disk images. **Windows is not supported.**
 
 ---
 

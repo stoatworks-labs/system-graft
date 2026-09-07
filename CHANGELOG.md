@@ -5,6 +5,28 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hardware coverage credits a built-in driver the alias database names.** Kernels before
+  6.13 list compiled-in drivers in `modules.builtin` but ship none of their device-table
+  aliases, so `--alias-db` could resolve a device to `e1000e`, find `e1000e` built into the
+  kernel, and still report the device as not covered.
+- **The Linux USB writer can see an attached disk image.** Loop devices are `TYPE loop` in
+  `lsblk`, which the enumeration dropped before `--allow-virtual` could admit them, and it
+  then marked everything without a USB transport as internal. The partition node is now
+  waited for (after `partprobe`) instead of assumed after a fixed sleep.
+- **Ownership is read numerically (`unsquashfs -lln`).** A host can print a uid as a name
+  containing a space — MSYS2 renders uid 33 as `WRITE RESTRICTED` — and the parser skipped
+  such entries on both the read and the verify side, so the output lost that ownership
+  while the log said the table matched. Any listing entry that fails to parse is now an
+  error. `pwd`/`grp` are imported lazily so the CLI starts on Windows Python.
+
+### Verified
+
+- A patched Waves SGS 16.5 initrd booted in a KVM/OVMF virtual machine with three injected
+  drivers loaded and working; the Linux write path produced the boot image. See
+  `docs/NOTES.md`.
+
 ## [0.2.0] — 2026-08-07
 
 Finding the right driver, not just injecting one you already have.
