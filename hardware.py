@@ -510,6 +510,22 @@ def assess(devices: list[Device], index: CoverageIndex) -> list[Finding]:
             findings.append(Finding(device=device, status=UNCERTAIN, providers=maybe))
             continue
         external = [p for p in certain + uncertain if p.origin == "external"]
+        # An alias database can name a driver the image already carries but
+        # whose device table it cannot read -- every kernel before 6.13 ships
+        # modules.builtin.modinfo without the MODULE_DEVICE_TABLE aliases of
+        # compiled-in drivers, so e1000e sits in modules.builtin while nothing
+        # in the image says which PCI IDs it claims. The external mapping
+        # closes that gap; reporting the device as uncovered would be wrong.
+        present = [p for p in external if index.has_module(p.module)]
+        if present and all(p in certain for p in present):
+            resolved = [Provider(module=p.module,
+                                 origin="builtin" if p.module in index.builtin else "module")
+                        for p in present]
+            status = COVERED_BUILTIN if all(p.origin == "builtin" for p in resolved) \
+                else COVERED_MODULE
+            findings.append(Finding(device=device, status=status, providers=resolved,
+                                    hint="device table read from the alias database"))
+            continue
         findings.append(Finding(device=device, status=UNCOVERED, providers=external,
                                 hint=hint_for(device)))
     return findings

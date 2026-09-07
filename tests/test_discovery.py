@@ -412,6 +412,32 @@ class CoverageTests(unittest.TestCase):
         report = hardware.format_report(findings, index)
         self.assertIn("r8169", report)
 
+    def test_external_alias_db_credits_a_builtin_driver(self):
+        """A built-in driver whose device table the image does not carry.
+
+        Kernels before 6.13 list e1000e in modules.builtin but ship none of its
+        PCI aliases in modules.builtin.modinfo, so the only way to know that
+        8086:10d3 is an e1000e part is an external alias database. Once that
+        says so, the device is covered -- by the kernel, not by nothing.
+        """
+        db = self.tmp / "modules.alias"
+        db.write_text("alias pci:v00008086d000010D3sv*sd*bc*sc*i* e1000e\n"
+                      "alias pci:v00008086d00001533sv*sd*bc*sc*i* igb\n"
+                      "alias pci:v000010ECd00008168sv*sd*bc*sc*i* r8169\n")
+        findings, index = self.assess(
+            "8086:10d3 82574L\n"    # built in, alias known only externally
+            "8086:1533 i210\n"      # module in the image, alias in the image too
+            "10ec:8168 Realtek\n",  # named externally, absent from the image
+            alias_db=db)
+        by_device = {f.device.device: f for f in findings}
+        self.assertEqual(by_device["10d3"].status, hardware.COVERED_BUILTIN)
+        self.assertEqual(by_device["10d3"].providers[0].module, "e1000e")
+        self.assertEqual(by_device["10d3"].providers[0].origin, "builtin")
+        self.assertEqual(by_device["1533"].status, hardware.COVERED_MODULE)
+        self.assertEqual(by_device["8168"].status, hardware.UNCOVERED)
+        report = hardware.format_report(findings, index)
+        self.assertIn("covered by a driver built into the kernel", report)
+
     def test_hint_when_nothing_else_is_known(self):
         findings, _ = self.assess(
             "01:00.0 Ethernet controller [0200]: Realtek Semiconductor Co., Ltd. "
