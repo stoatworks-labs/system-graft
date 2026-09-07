@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from usbwriter import find_volume_slice  # noqa: E402
+from usbwriter import find_volume_slice, linux_devices_from_lsblk, linux_partition_node  # noqa: E402
 
 
 def _plist(partitions, node="disk4"):
@@ -87,3 +87,69 @@ def test_no_partitions_yet_is_not_a_guess():
 
 def test_unparseable_output_is_not_a_guess():
     assert find_volume_slice(b"not a plist", "disk4", "SGTEST") == (None, None)
+
+
+# --------------------------------------------------------------------------
+# Linux enumeration — from lsblk JSON, never from a device
+# --------------------------------------------------------------------------
+
+# What `lsblk -J -b -o NAME,SIZE,MODEL,RM,TRAN,TYPE,MOUNTPOINT,HOTPLUG` says on
+# a KVM guest with a virtio root disk, one USB stick, an NVMe drive, an SD card
+# and a loop-mounted disk image. The loop device is TYPE "loop" with no TRAN —
+# the case the first cut of the parser silently dropped.
+LSBLK = {"blockdevices": [
+    {"name": "loop13", "size": 67108864, "model": None, "rm": False, "tran": None,
+     "type": "loop", "mountpoint": None, "hotplug": False},
+    {"name": "vda", "size": 42949672960, "model": None, "rm": False, "tran": "virtio",
+     "type": "disk", "mountpoint": None, "hotplug": False,
+     "children": [{"name": "vda1", "mountpoint": "/"}]},
+    {"name": "nvme0n1", "size": 1000204886016, "model": "Samsung SSD", "rm": False,
+     "tran": "nvme", "type": "disk", "mountpoint": None, "hotplug": False},
+    {"name": "sdb", "size": 31029460992, "model": "DataTraveler", "rm": True, "tran": "usb",
+     "type": "disk", "mountpoint": None, "hotplug": True,
+     "children": [{"name": "sdb1", "mountpoint": "/media/lab/STICK"}]},
+    {"name": "mmcblk0", "size": 15931539456, "model": None, "rm": True, "tran": None,
+     "type": "disk", "mountpoint": None, "hotplug": True},
+    {"name": "sr0", "size": 1073741824, "model": "QEMU DVD-ROM", "rm": True, "tran": "sata",
+     "type": "rom", "mountpoint": None, "hotplug": True},
+]}
+
+
+def _nodes(devices):
+    return sorted(d.node for d in devices)
+
+
+def test_linux_only_removable_media_by_default():
+    devices = linux_devices_from_lsblk(LSBLK, allow_virtual=False)
+    assert _nodes(devices) == ["mmcblk0", "sdb"]
+    assert all(not d.internal and not d.virtual for d in devices)
+
+
+def test_linux_allow_virtual_admits_the_loop_device_and_nothing_internal():
+    # The whole reason the flag exists: the write path is tested against an
+    # attached disk image, and on Linux that is a loop device.
+    devices = linux_devices_from_lsblk(LSBLK, allow_virtual=True)
+    assert _nodes(devices) == ["loop13", "mmcblk0", "sdb"]
+    loop = next(d for d in devices if d.node == "loop13")
+    assert loop.virtual and not loop.internal and loop.path == "/dev/loop13"
+
+
+def test_linux_internal_disks_are_never_offered():
+    # vda is the guest's root disk, nvme0n1 a real internal drive: neither may
+    # appear whatever the flags, and an empty TRAN must not read as "virtual".
+    for allow in (False, True):
+        nodes = _nodes(linux_devices_from_lsblk(LSBLK, allow_virtual=allow))
+        assert "vda" not in nodes and "nvme0n1" not in nodes
+
+
+def test_linux_usb_mountpoints_are_collected_from_children():
+    sdb = next(d for d in linux_devices_from_lsblk(LSBLK, False) if d.node == "sdb")
+    assert sdb.mountpoints == ["/media/lab/STICK"]
+    assert sdb.bus == "USB"
+
+
+def test_linux_partition_node_naming():
+    assert linux_partition_node("/dev/sdb") == "/dev/sdb1"
+    assert linux_partition_node("/dev/loop13") == "/dev/loop13p1"
+    assert linux_partition_node("/dev/nvme0n1") == "/dev/nvme0n1p1"
+    assert linux_partition_node("/dev/mmcblk0") == "/dev/mmcblk0p1"

@@ -132,14 +132,30 @@ def _linux_devices(allow_virtual: bool) -> list[Device]:
         tree = json.loads(proc.stdout or "{}")
     except Exception as exc:
         raise USBError(f"could not parse lsblk output: {exc}") from exc
+    return linux_devices_from_lsblk(tree, allow_virtual)
 
+
+def linux_devices_from_lsblk(tree: dict, allow_virtual: bool) -> list[Device]:
+    """Turn `lsblk -J` output into Devices. Split out so it can be tested
+    without a block device, which is the only way this module is tested.
+
+    On Linux the throwaway image the write path is exercised against is a loop
+    device, and lsblk reports it as TYPE "loop" with an empty TRAN -- not as a
+    "disk". The first cut of this function dropped every non-"disk" entry and
+    then marked whatever survived as internal unless it was removable or USB,
+    so `--allow-virtual` could never see an attached image and the Linux path
+    could never be tested at all. A loop device is virtual and nothing else;
+    an empty TRAN on a real disk still means internal.
+    """
     devices: list[Device] = []
     for entry in tree.get("blockdevices", []):
-        if entry.get("type") != "disk":
+        kind = entry.get("type")
+        transport = (entry.get("tran") or "")
+        virtual = kind == "loop" or transport == "loop"
+        if kind != "disk" and not virtual:
             continue
         removable = bool(entry.get("rm")) or bool(entry.get("hotplug"))
-        transport = (entry.get("tran") or "")
-        if not removable and transport != "usb" and not allow_virtual:
+        if not removable and transport != "usb" and not (virtual and allow_virtual):
             continue
         mounts = [c["mountpoint"] for c in entry.get("children", []) if c.get("mountpoint")]
         if entry.get("mountpoint"):
@@ -149,14 +165,37 @@ def _linux_devices(allow_virtual: bool) -> list[Device]:
             path=f"/dev/{entry['name']}",
             name=(entry.get("model") or "").strip(),
             size=int(entry.get("size") or 0),
-            internal=not removable and transport != "usb",
+            internal=not removable and transport != "usb" and not virtual,
             removable=removable,
             ejectable=removable,
-            virtual=transport in ("", "loop"),
+            virtual=virtual,
             bus=transport.upper(),
             mountpoints=sorted(set(mounts)),
         ))
     return devices
+
+
+def linux_partition_node(device_path: str) -> str:
+    """/dev/sdb -> /dev/sdb1, but /dev/loop13 -> /dev/loop13p1 and
+    /dev/nvme0n1 -> /dev/nvme0n1p1: a node ending in a digit gets a 'p'."""
+    return f"{device_path}p1" if device_path[-1].isdigit() else f"{device_path}1"
+
+
+def _wait_for_partition(device_path: str, part: str, timeout: float = 15.0) -> None:
+    """The kernel has to re-read the partition table before the new node
+    exists. sgdisk asks it to, but a loop device attached without partition
+    scanning ignores that, and udev takes a moment either way -- so ask again
+    with partprobe if it is there, then wait for the node rather than sleeping
+    a fixed two seconds and hoping."""
+    if shutil.which("partprobe"):
+        _run(["partprobe", device_path], check=False)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if Path(part).exists():
+            return
+        time.sleep(0.25)
+    raise USBError(f"{part} did not appear after partitioning. If this is a loop device, "
+                   "attach it with `losetup -P` so the kernel scans its partitions.")
 
 
 def list_devices(allow_virtual: bool = False) -> list[Device]:
@@ -358,8 +397,9 @@ def write_bootable(device: Device, image_dir: Path, replacements: dict[str, Path
         yield 0.15, "step", "Partitioning (GPT) and formatting FAT32"
         _run(["sgdisk", "--zap-all", device.path], check=False)
         _run(["sgdisk", "-n", "1:0:0", "-t", "1:ef00", device.path])
-        part = f"{device.path}p1" if device.node[-1].isdigit() else f"{device.path}1"
-        time.sleep(2)
+        part = linux_partition_node(device.path)
+        _wait_for_partition(device.path, part)
+        yield 0.20, "info", f"  volume is {part}"
         _run(["mkfs.vfat", "-F", "32", "-n", label, part])
         mount_point = "/mnt/system-graft"
         Path(mount_point).mkdir(parents=True, exist_ok=True)
