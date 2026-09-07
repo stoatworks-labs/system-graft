@@ -26,11 +26,9 @@ image relying on file caps needs keep_xattrs AND to be patched on Linux.
 from __future__ import annotations
 
 import contextlib
-import grp
 import hashlib
 import os
 import platform
-import pwd
 import re
 import shutil
 import stat
@@ -317,6 +315,10 @@ _LLS_RE = re.compile(
     r"(?P<path>.+?)(?: -> .*)?$"
 )
 
+# What an entry line starts with, so a line that is an entry but fails the
+# full pattern is reported instead of skipped.
+_ENTRY_START_RE = re.compile(r"^[-dlbcps][-rwxsStT]{9}\s")
+
 _MODE_BITS = [
     (stat.S_IRUSR, "r"), (stat.S_IWUSR, "w"),
     (stat.S_IRGRP, "r"), (stat.S_IWGRP, "w"),
@@ -355,11 +357,16 @@ def _symbolic_to_octal(mode_str: str) -> int:
 
 
 def _name_to_uid(name: str) -> int:
+    """Listings are read with -lln, so this only ever sees digits. The name
+    path is kept for callers that hand in a -lls line, and imports pwd lazily
+    because Windows Python has no pwd module and the CLI must still start
+    there far enough to say what is missing."""
     if name.isdigit():
         return int(name)
     try:
+        import pwd
         return pwd.getpwnam(name).pw_uid
-    except KeyError:
+    except (ImportError, KeyError):
         return 0
 
 
@@ -367,8 +374,9 @@ def _name_to_gid(name: str) -> int:
     if name.isdigit():
         return int(name)
     try:
+        import grp
         return grp.getgrnam(name).gr_gid
-    except KeyError:
+    except (ImportError, KeyError):
         return 0
 
 
@@ -380,14 +388,32 @@ def build_ownership_map(unsquashfs: str, image: Path) -> dict[str, tuple[int, in
     user cannot restore ownership or setuid bits, so we read them from the source
     and hand them back to mksquashfs as a pseudo-file.
     """
-    out = subprocess.run([unsquashfs, "-lls", str(image)], capture_output=True, text=True)
+    # -lln, not -lls: numeric uid/gid. Names come from the host's passwd, and a
+    # host can print one with a space in it -- MSYS2 renders uid 33 as
+    # "WRITE RESTRICTED/WRITE RESTRICTED" -- which the parser then skipped,
+    # dropping /var/www from the table on both the read and the verify side so
+    # the output silently carried the extracting user's ownership while the
+    # log said the table matched. Numbers have no such problem.
+    out = subprocess.run([unsquashfs, "-lln", str(image)], capture_output=True, text=True)
     if out.returncode != 0:
-        raise PatchError(f"unsquashfs -lls failed: {out.stderr.strip()}")
+        raise PatchError(f"unsquashfs -lln failed: {out.stderr.strip()}")
+    return parse_listing(out.stdout)
 
+
+def parse_listing(listing: str) -> dict[str, tuple[int, int, int]]:
+    """Parse `unsquashfs -lln` output into {relative path: (mode, uid, gid)}.
+
+    Strict: any line that starts like an entry but does not parse is an error,
+    because an entry that silently drops out of this table is an entry whose
+    ownership is neither restored nor verified.
+    """
     table: dict[str, tuple[int, int, int]] = {}
-    for line in out.stdout.splitlines():
-        match = _LLS_RE.match(line.rstrip())
+    for line in listing.splitlines():
+        line = line.rstrip()
+        match = _LLS_RE.match(line)
         if not match:
+            if _ENTRY_START_RE.match(line):
+                raise PatchError(f"could not parse listing entry: {line!r}")
             continue
         path = match.group("path")
         if not path.startswith("squashfs-root"):

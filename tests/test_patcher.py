@@ -149,6 +149,29 @@ class PatcherTests(unittest.TestCase):
         self.assertEqual(table["var/www"], (0o755, ODD_UID, ODD_UID))
         self.assertEqual(table["."], (0o755, 0, 0))
 
+    def test_listing_is_parsed_numerically_and_strictly(self):
+        # What `unsquashfs -lln` prints: numeric ids, so uid 33 is "33/33" on
+        # every host. The named form is what MSYS2 printed for the same entry
+        # with -lls -- a name with a space -- and the old parser skipped it,
+        # losing /var/www's ownership on the read side and the verify side
+        # alike. That must now be an error, never a silent omission.
+        numeric = (
+            "drwxr-xr-x 0/0                       3 2025-10-04 19:09 squashfs-root\n"
+            "-rwsr-xr-x 0/0                  759176 2025-10-04 19:09 squashfs-root/bin/busybox\n"
+            "drwxr-xr-x 33/33                     3 2025-10-04 19:09 squashfs-root/var/www\n"
+            "lrwxrwxrwx 0/0                       7 2025-10-04 19:09 squashfs-root/bin/arch -> busybox\n"
+        )
+        table = patcher.parse_listing(numeric)
+        self.assertEqual(table["var/www"], (0o755, 33, 33))
+        self.assertEqual(table["bin/busybox"], (0o4755, 0, 0))
+        self.assertEqual(table["."], (0o755, 0, 0))
+        self.assertEqual(table["bin/arch"][0], 0o777)
+
+        spaced = ("drwxr-xr-x WRITE RESTRICTED/WRITE RESTRICTED 3 2025-10-04 19:09 "
+                  "squashfs-root/var/www\n")
+        with self.assertRaises(patcher.PatchError):
+            patcher.parse_listing(spaced)
+
     def test_setuid_and_ownership_survive(self):
         output, _ = self.run_patch()
         before, after = self.ownership(self.image), self.ownership(output)
