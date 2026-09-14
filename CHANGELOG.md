@@ -27,6 +27,23 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   drivers loaded and working; the Linux write path produced the boot image. See
   `docs/NOTES.md`.
 
+## [0.2.2] — 2026-09-04
+
+### Fixed
+
+- **The macOS USB writer finds the FAT32 volume by name rather than assuming it is
+  slice 1.** GPT partitioning puts a 209.7 MB EFI System Partition first once the
+  disk is large enough — measured: 256 MB and 2 GB images put the volume at `s1`,
+  8 GB and 32 GB put EFI at `s1` and the volume at `s2` — so every disk image this
+  was tested against worked and every real stick would have timed out waiting for
+  a slice macOS never mounts.
+- The Tk interpreter is torn down on the thread that created it, which is what
+  had been aborting the macOS test job after every test had passed.
+
+## [0.2.1] — 2026-08-18
+
+A release-tooling refresh; nothing in the tool changed.
+
 ## [0.2.0] — 2026-08-07
 
 Finding the right driver, not just injecting one you already have.
