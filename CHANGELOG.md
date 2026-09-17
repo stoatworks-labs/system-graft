@@ -3,7 +3,15 @@
 All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.3] — 2026-09-17
+
+### Changed
+
+- **One universal macOS build**, so Intel Macs get a build that runs.
+- **The app reports its own version again.** `_version.py` had stayed at 0.2.0 through
+  v0.2.1 and v0.2.2 — the release workflow names the artefacts from the tag, so the
+  filenames were right while the About window, the GUI title and the download user
+  agent all said 0.2.0.
 
 ### Fixed
 
