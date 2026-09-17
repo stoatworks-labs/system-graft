@@ -83,7 +83,8 @@ def version(version: str | None = None, distribution: str | None = None) -> str:
         return "v" + str(version).lstrip("v")
 
     try:
-        from importlib.metadata import PackageNotFoundError, version as _installed
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as _installed
 
         return "v" + _installed(distribution or data.SLUG).lstrip("v")
     except (ImportError, PackageNotFoundError, ValueError):
@@ -100,7 +101,11 @@ def links() -> list[tuple[str, str]]:
     A guide that has not been written, or a repo that is still private, is left
     out rather than pointed at a plausible URL that 404s.
     """
-    rows = [("User guide", data.GUIDE), ("Project page", data.PAGE), ("Source on GitHub", data.REPO)]
+    rows = [
+        ("User guide", data.GUIDE),
+        ("Project page", data.PAGE),
+        ("Source on GitHub", data.REPO),
+    ]
     return [(label, url) for label, url in rows if url]
 
 
