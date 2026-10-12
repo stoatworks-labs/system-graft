@@ -90,6 +90,7 @@ tests/test_discovery.py   kmod / hardware / sources, and the boot-time checks
 tests/test_kernelspec.py  kernel banner/config extraction, and fact-vs-inference
 tests/test_gui.py         GUI wiring; skips itself when Tk has no display
 tests/test_distro.py      archive lookups (stubbed) and downloads (localhost)
+tests/test_usbwriter.py   the writer's lsblk and diskutil parsing (pytest-style functions)
 ```
 
 **No test touches the network, and it must stay that way.** `distro.py`'s tests stub the
@@ -99,7 +100,8 @@ are recorded from real replies; if an archive changes shape, the fix is to re-re
 by hand, not to make CI depend on a third party being up.
 
 Note the test coverage maps onto exactly the split in §3: `patcher.py`, `kmod.py`,
-`hardware.py`, `sources.py` and `kernelspec.py` have tests; `usbwriter.py` does not.
+`hardware.py`, `sources.py` and `kernelspec.py` have tests; `usbwriter.py` has tests only for
+its device and slice parsing.
 
 Both `patch()` and `inspect()` are generators yielding `(fraction, level, message)`.
 That is the entire contract between the core and any front end: `gui.py::_run_job`

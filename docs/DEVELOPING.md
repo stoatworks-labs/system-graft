@@ -39,19 +39,21 @@ The guards that must keep working:
 
 Three separate claims, often collapsed into one:
 
-- **The patch path** (injecting modules into the initrd) is covered by **16 tests, run on Ubuntu
+- **The patch path** (injecting modules into the initrd) is covered by **120 tests, run on Ubuntu
   and macOS in CI**, and has been exercised against a **real appliance firmware image**. This
   part is genuinely well-evidenced.
 - **The USB writer** has only ever been run against an **attached disk image, never a physical
   stick.**
 - **No image produced by this tool has ever been booted on real hardware.**
-- **The Linux write path is implemented but completely untested.**
+- **The Linux write path** has run too since 2026-09-07, against a loop device, never a physical
+  stick.
 
 > So: **the transformation is well tested, the delivery mechanism largely isn't, and the end
-> result has never been proven to boot. Don't let a summary compress that into "tested".**
+> result has booted in a VM but never on real hardware. Don't let a summary compress that into
+> "tested".**
 
-Note the test coverage maps exactly onto that split: `patcher.py` has tests, `usbwriter.py` does
-not.
+Note the test coverage maps exactly onto that split: `patcher.py` has tests, and `usbwriter.py`
+has tests only for its device and slice parsing (`tests/test_usbwriter.py`).
 
 ---
 

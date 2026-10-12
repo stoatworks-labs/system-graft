@@ -79,8 +79,6 @@ contract; bump it if a field changes meaning.
 
 ## Trying it
 
-A crash handler that has never been fired is a guess, not a feature:
-
-```bash
-see wsm-wwb-bridge's tools/diag_crash_example.py
-```
+A crash handler that has never been fired is a guess, not a feature. The example is
+[`tools/diag_crash_example.py`](https://github.com/stoatworks-labs/wsm-wwb-bridge/blob/main/tools/diag_crash_example.py)
+in wsm-wwb-bridge, which is archived now (it became part of RFutils) but still readable.
