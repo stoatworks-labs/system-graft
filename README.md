@@ -3,26 +3,25 @@
 ### Driver injector for SquashFS initrd images
 
 > **AI-assisted project.** This codebase was created with [Claude](https://claude.com/claude-code)
-> (Anthropic), directed and reviewed by a human author. The patch path is covered by 120
-> tests run on Ubuntu and macOS in CI, and has been exercised against a real appliance
-> firmware image. An image it produced — a Waves SGS 16.5 initrd with three injected
-> drivers — has been **booted in a KVM virtual machine**, where the injected drivers loaded
-> and drove the emulated NICs; **no image has been booted on real hardware**. The USB
-> writer, on macOS and on Linux, has only ever been run against an **attached disk image,
-> never a physical stick**. This tool repartitions and erases block devices — read the
-> safety notes and confirm the target twice before using it on anything you care about.
+> (Anthropic), directed and reviewed by a human author. The patch path has 120 tests that run
+> on Ubuntu and macOS in CI, and I've run it against a real appliance firmware image. One image
+> it made, a Waves SGS 16.5 initrd with three injected drivers, has **booted in a KVM virtual
+> machine**, where those drivers loaded and drove the emulated NICs. **No image has been booted
+> on real hardware.** The USB writer, on macOS and on Linux, has only ever written to an
+> **attached disk image, never a physical stick**. It repartitions and erases block devices, so
+> read the safety notes and check the target twice before you use it on anything you care about.
 
-Inject out-of-tree kernel modules into a SquashFS initrd, add a load hook to the image's
-init scripts, and write the result to bootable removable media.
+System Graft puts out-of-tree kernel modules into a SquashFS initrd, adds a load hook to the
+image's init scripts, and writes the result to bootable removable media.
 
-You supply the image. You supply the modules. **This tool ships neither**, contains no
-third-party firmware or binaries, and never modifies its input — it always writes a new
+You bring the image and the modules. **This tool ships neither**, and it contains no
+third-party firmware or binaries. It never modifies its input either: it always writes a new
 file.
 
-Typical use: an appliance-Linux image ships a monolithic kernel with a narrow built-in
-driver set, and you need a driver for hardware you own that the vendor's build didn't
-include. This unpacks the initrd, drops in a `.ko` you built, wires it into the init
-sequence, and repacks it faithfully.
+The usual reason you'd want it: an appliance runs a Linux image with a monolithic kernel and a
+short list of built-in drivers, and the vendor, in its wisdom, didn't include one for the
+hardware you've actually got. This unpacks the initrd, drops in a `.ko` you built, wires it
+into the init sequence and packs it back up faithfully.
 
 ![System Graft GUI after a completed patch. Stage 1 shows the selected OS image directory, the detected SquashFS image with its compression and block size, the Generic BusyBox profile, one module igb.ko listed with its vermagic string, and the output path. Stage 2 shows the bootable-USB controls. The log below reports the verification pass: ownership and setuid bits preserved, permission table matches source exactly, the injected module present in the output, and a sha256 of the result](docs/screenshots/patch-complete.png)
 
@@ -64,33 +63,34 @@ macOS builds are signed and notarised by Apple, so they open normally — no Gat
 
 ## Why this isn't just `unsquashfs` + `mksquashfs`
 
-Because doing it by hand silently produces a broken image. Three things bite:
+Because doing it by hand gives you a broken image and doesn't mention it. Three things bite:
 
-1. **Ownership is lost.** `unsquashfs` run as a normal user cannot restore uid/gid.
-   Repack and every file belongs to *you*, not root.
-2. **setuid/setgid bits are dropped.** In the image this was written against, `/bin/busybox`
-   is `-rwsr-xr-x`. A non-root round-trip silently returns it as `-rwxr-xr-x`.
+1. **Ownership is lost.** `unsquashfs` run as a normal user can't restore uid/gid, so after
+   a repack every file belongs to *you* rather than root.
+2. **setuid/setgid bits are dropped.** In the image I wrote this against, `/bin/busybox`
+   is `-rwsr-xr-x`. Round-trip it as a normal user and it comes back as `-rwxr-xr-x`,
+   without a word.
 3. **The root directory escapes both.** Even a careful pseudo-file misses the root inode,
-   which ends up owned by whoever ran the extract.
+   so it ends up owned by whoever ran the extract.
 
-This tool reads the full mode/uid/gid table from the *source* image, hands it back to
-`mksquashfs` as a pseudo-file, applies the root inode via `-root-uid/-root-gid/-root-mode`,
-and then **re-reads the output and diffs it against the source** — refusing to claim success
-unless the permission table matches exactly.
+So the tool reads the full mode/uid/gid table from the *source* image, hands it back to
+`mksquashfs` as a pseudo-file, sets the root inode with `-root-uid/-root-gid/-root-mode`,
+then **re-reads the output and diffs it against the source**. It won't call it a success
+unless the two permission tables are identical.
 
-It also matches the source's compression and block size, so the repack isn't quietly
+It also matches the source's compression and block size, so the repack isn't subtly
 different from what the bootloader expects.
 
 ## The vermagic constraint
 
-A module only loads into a kernel whose **vermagic** it matches exactly — kernel version,
+A module only loads into a kernel whose **vermagic** it matches in full: kernel version,
 SMP, preemption model, `mod_unload`, `modversions`. If the image's kernel is
 `6.12.11 SMP preempt_rt mod_unload modversions`, a module built against stock Debian
-`6.1.0-19-amd64 SMP mod_unload modversions` will be refused at load time, silently, at boot,
-on a machine you may not have a console on.
+`6.1.0-19-amd64 SMP mod_unload modversions` gets refused at load time. Silently, at boot,
+on a machine you may well not have a console on.
 
-So before injecting, the tool reads the vermagic of every `.ko` already in the image, reads
-the vermagic of every `.ko` you're adding, and **blocks on mismatch by default**:
+So before it injects anything, the tool reads the vermagic of every `.ko` already in the
+image and of every `.ko` you're adding, and **blocks on a mismatch by default**:
 
 ```
 ERROR: vermagic mismatch for fakenic.ko:
@@ -105,9 +105,9 @@ ERROR: vermagic mismatch for fakenic.ko:
 
 There's an override, off by default. It exists for people who know why they want it.
 
-If `CONFIG_MODVERSIONS` is in the vermagic, matching the string is necessary but not
-sufficient — the symbol CRCs must match too. Build against the same kernel source and
-config as the image's kernel.
+If `CONFIG_MODVERSIONS` is in the vermagic, matching the string isn't enough on its own: the
+symbol CRCs have to match too. Build against the same kernel source and config as the
+image's kernel.
 
 ## Documentation
 
@@ -120,8 +120,8 @@ config as the image's kernel.
 ## Requirements
 
 - Python 3.10+ with Tkinter (for the GUI; the CLI needs neither Tk nor any third-party package)
-- `squashfs-tools` — `brew install squashfs` on macOS, your package manager elsewhere.
-  The build must support the image's compressor (zstd, commonly).
+- `squashfs-tools`: `brew install squashfs` on macOS, your package manager elsewhere.
+  The build has to support the image's compressor (often zstd).
 
 ## Usage
 
@@ -131,15 +131,15 @@ config as the image's kernel.
 python3 gui.py
 ```
 
-Two stages sharing one progress bar and one log:
+Two stages, sharing one progress bar and one log:
 
-1. **Patch initrd** — pick the OS image directory, choose a profile, add your `.ko` files,
-   press **Patch**.
-2. **Write bootable USB** — pick a removable device, confirm, and the boot tree is written
-   with the patched initrd substituted.
+1. **Patch initrd**: pick the OS image directory, choose a profile, add your `.ko` files
+   and press **Patch**.
+2. **Write bootable USB**: pick a removable device, confirm, and it writes the boot tree
+   with the patched initrd swapped in.
 
-Stage 1 also carries four **Inspect** buttons, sitting above the module list because they
-are how you work out *which* module you need in the first place. None of them write
+Stage 1 also has four **Inspect** buttons. They sit above the module list because they're
+how you work out *which* module you need in the first place, and none of them write
 anything:
 
 | Button | Does |
@@ -150,14 +150,14 @@ anything:
 | **Find online…** | is this a stock distro kernel? which package holds the modules? Asks before downloading anything |
 | **Build spec…** | pick a destination; writes the recovered `.config` and build instructions there |
 
-The **Hardware…** box takes a paste rather than a file because of where that data comes
-from — a machine that will not boot. The listing gets read off a screen or copied out of a
-console far more often than it exists as a file on the disk running this tool.
+The **Hardware…** box takes a paste rather than a file because of where that listing comes
+from: a machine that won't boot. It's far more often read off a screen or copied out of a
+console than sitting in a file on the computer running this tool.
 
-The log records every command run, every check made and every file touched. "Save log…"
-writes the whole transcript out.
+The log records every command it runs, every check it makes and every file it touches.
+"Save log…" writes the whole transcript out.
 
-> The screenshots below predate the Inspect controls and show the older window.
+> The screenshots in this README predate the Inspect controls and show the older window.
 
 ### CLI
 
@@ -189,13 +189,13 @@ python3 patcher.py /path/to/image-dir -m ./igb.ko -p sgs
 
 ## Which driver do I need, and which build of it?
 
-Injecting the right module is the easy half. The tool answers the other half from data the
+Injecting the right module is the easy half. The tool answers the other half from what the
 image already carries.
 
-**Which driver.** Every `.ko` declares the PCI/USB IDs it drives; `depmod` collects those
+**Which driver.** Every `.ko` declares the PCI/USB IDs it drives, `depmod` collects those
 into `modules.alias`, and drivers compiled *into* the kernel put theirs in
-`modules.builtin.modinfo`. Read all three, hand it a device listing from the target machine,
-and it reports per device whether this image can drive it:
+`modules.builtin.modinfo`. The tool reads all three, so if you hand it a device listing from
+the target machine it tells you, device by device, whether this image can drive it:
 
 ```bash
 lspci -nnmm > target.txt          # on the target, or any Linux booted on that hardware
@@ -216,13 +216,12 @@ covered by a driver built into the kernel  (1)
       e1000e (built into the kernel)
 ```
 
-Reading `modules.builtin.modinfo` is what keeps that third case honest: without it, hardware
-that works fine because its driver is compiled in gets reported as unsupported, and you go
-off building a module you never needed.
+Reading `modules.builtin.modinfo` is what gets that third case right. Without it, hardware
+that works fine because its driver is compiled in gets reported as unsupported, and off you
+go building a module you never needed.
 
 Naming the driver for hardware the image *doesn't* cover needs a mapping the image has no
-reason to contain. `--alias-db` points at a real one from any Linux system, which beats
-guessing:
+reason to contain. `--alias-db` borrows one from any Linux system, which beats guessing:
 
 ```bash
 python3 patcher.py ./image-dir --hardware target.txt \
@@ -231,9 +230,9 @@ python3 patcher.py ./image-dir --hardware target.txt \
 
 Without one you get a coarse family hint, labelled as a hint.
 
-**Which build.** Vendor driver packs and unpacked kernel packages contain builds for many
-kernels. Point `--scan` at one and it ranks everything it finds against this image —
-directories, tarballs, zips and `.deb`s, including `.ko.xz`/`.ko.gz`/`.ko.zst`:
+**Which build.** Vendor driver packs and unpacked kernel packages hold builds for lots of
+kernels. Point `--scan` at one and it ranks everything it finds against this image. It looks
+through directories, tarballs, zips and `.deb`s, and handles `.ko.xz`/`.ko.gz`/`.ko.zst` too:
 
 ```bash
 python3 patcher.py ./image-dir --scan ~/Downloads/driverpack --want r8169
@@ -249,20 +248,21 @@ same kernel release, different build flags — will NOT load as-is  (1)
       the image's kernel has preempt_rt; the module was not built with it
 ```
 
-That last line is the point: a mismatch now names the build flag to change, instead of
+That last line's the useful bit: a mismatch names the build flag to change, rather than
 leaving you to diff two strings by eye.
 
 ## Is there a prebuilt module at all?
 
-This question has two answers and only one of them is "go looking":
+This one has two answers, and only one of them is "go looking":
 
 - **A stock distro kernel.** The distro built the kernel and its modules in one build, so
-  its archive holds modules whose vermagic matches *by construction*. That is a lookup.
-- **A vendor or appliance kernel.** No prebuilt module exists anywhere except that vendor's
-  build machine. No archive, no database, no amount of searching will produce one — it has
-  to be compiled.
+  its archive holds modules whose vermagic matches *by construction*. That's just a lookup.
+- **A vendor or appliance kernel.** The only prebuilt module in existence is on that
+  vendor's build machine. No archive or database has one, and no amount of searching will
+  turn one up, so it has to be compiled.
 
-`--find-drivers` tells you which of the two you are in, over the network but metadata only:
+`--find-drivers` tells you which of the two you've got. It goes over the network, but only
+for metadata:
 
 ```
 Kernel release: 6.1.0-19-amd64
@@ -275,14 +275,15 @@ Found 1 package(s), 65.6 MB total:
       sha1 2ee9caba092c6e95ac73c886d04b83af7559b2df — will be verified
 ```
 
-`--fetch-drivers DIR` then downloads those packages and runs `--scan` over what is inside
-them, so the answer lands as a ranked list of modules rather than a folder of `.deb` files.
+`--fetch-drivers DIR` then downloads those packages and runs `--scan` over what's inside
+them, so you end up with a ranked list of modules rather than a folder full of `.deb` files.
 
-**The release string decides this, not the compiler.** The banner's compiler says what the
-*build host* was, which is a different question — appliance vendors routinely build bespoke
-kernels on Debian boxes, so `gcc (Debian 12.2.0-14)` on a kernel called `6.12.11` means
-someone compiled it on Debian, not that Debian ships it. Getting that backwards would send
-you hunting an archive for a package that was never published, so the tool says it plainly:
+**The release string decides this, not the compiler.** The compiler in the banner tells you
+what the *build host* was, which is a different question. Appliance vendors build their own
+kernels on Debian boxes all the time, so `gcc (Debian 12.2.0-14)` on a kernel called
+`6.12.11` means someone compiled it on Debian, not that Debian ships it. Get that backwards
+and you'd be hunting an archive for a package that was never published, so the tool spells
+it out:
 
 ```
 Kernel release: 6.12.11
@@ -291,28 +292,28 @@ Kernel release: 6.12.11
   kernel compiled on a Debian machine, not one Debian ships.
 ```
 
-Only Debian and Ubuntu are resolved to actual URLs, because both publish a machine-readable
-API that can be queried rather than scraped — Debian's also returns a SHA-1, which the
-download is checked against. The RHEL rebuilds, Alpine and Arch are identified and named
-down to the exact package, but no URL is constructed for them: their layouts vary by
-rebuild vendor and mirror, and an untested URL fails later, further from the cause, and
-looks like a bug in this tool.
+Only Debian and Ubuntu get resolved to actual URLs, because both publish a machine-readable
+API I can query rather than scrape. Debian's also returns a SHA-1, and the download is
+checked against it. The RHEL rebuilds, Alpine and Arch are identified and named down to the
+exact package, but the tool doesn't build a URL for them. Their layouts vary by rebuild
+vendor and mirror, and an untested URL fails later, further from the cause, where it looks
+like a bug in this tool.
 
 ## Asking the kernel instead of guessing
 
-The initrd only implies what its kernel expects. The kernel image itself — normally sitting
-right next to the initrd as `boot/vmlinuz` — states it outright, in two places:
+The initrd only hints at what its kernel expects. The kernel image itself (normally sitting
+right next to the initrd as `boot/vmlinuz`) says it outright, in two places:
 
 - **The build banner.** Every kernel carries `Linux version <release> (<builder>)
-  (<compiler>) <build>` in its rodata. That is the **exact compiler**, which does not appear
-  in vermagic at all, so a compiler mismatch is never caught at load time.
+  (<compiler>) <build>` in its rodata. That's the **exact compiler**, which doesn't appear
+  in vermagic at all, so a compiler mismatch never gets caught at load time.
 - **The embedded config.** A kernel built with `CONFIG_IKCONFIG` carries its whole `.config`,
   gzipped, between the markers `IKCFG_ST` and `IKCFG_ED`.
 
 Both usually sit inside a compressed payload, so the tool does what the kernel's own
 `scripts/extract-ikconfig` does: scan for each compression format's signature, decompress
-from every offset that matches, and look again in the result. gzip, xz, lzma, bzip2 and zstd
-are handled; lz4 and lzo are not.
+from every offset that matches, and look again in the result. It handles gzip, xz, lzma,
+bzip2 and zstd, but not lz4 or lzo.
 
 ```bash
 python3 patcher.py ./image-dir --report
@@ -330,33 +331,33 @@ What this means for a module you inject:
   !  CONFIG_TRIM_UNUSED_KSYMS=y — this kernel exports only the symbols its own...
 ```
 
-`CONFIG_TRIM_UNUSED_KSYMS` is the one people lose days to: the kernel exports only the
-symbols its own built-in code and modules use, so an out-of-tree driver can fail to resolve a
-symbol that plainly exists in the source.
+`CONFIG_TRIM_UNUSED_KSYMS` is the one people lose days to. The kernel only exports the
+symbols its own built-in code and modules use, so an out-of-tree driver can fail to resolve
+a symbol that's sitting right there in the source.
 
-`--build-spec DIR` writes the recovered `.config`, a `build-spec.json`, and a
-`HOW-TO-BUILD.md` with the exact steps. The `.config` is the valuable artefact — it is the
-one thing that cannot be reconstructed from anywhere else, and without it "build against a
-matching kernel tree" is advice rather than an instruction.
+`--build-spec DIR` writes the recovered `.config`, a `build-spec.json` and a
+`HOW-TO-BUILD.md` with the steps to follow. The `.config` is the precious bit. It's the one
+thing you can't reconstruct from anywhere else, and without it "build against a matching
+kernel tree" is advice rather than an instruction.
 
 ## Three more ways a module fails at boot
 
-Matching the vermagic is necessary, not sufficient. Alongside that check, the patch path now
-refuses or flags:
+Matching the vermagic is necessary, but it isn't enough. Alongside that check, the patch
+path refuses or flags these:
 
 - **Unsigned into a kernel that requires signatures.** An unsigned module is refused with
-  `ENOKEY` however well the vermagic matches, and there is no fixing that without the signing
-  key. When the kernel's config can be read this is a **fact** — `CONFIG_MODULE_SIG_FORCE=y`.
-  When it can't, it falls back to an **inference**: if every module the vendor shipped is
-  signed, the kernel very likely enforces it. The log says which of the two you got, because
-  a refusal you can check is worth more than one you can't. Blocks; `--allow-unsigned`
-  overrides.
-- **Missing firmware.** A driver declaring `firmware=` whose blob is absent from
-  `/lib/firmware` loads and then fails to bring the device up. Warns, and names the blob.
-- **Missing or misordered dependencies.** `insmod` does not resolve dependencies the way
-  `modprobe` does — it fails outright on an unresolved symbol. Dependencies are checked
-  against the image's modules *and* its built-in drivers, and the injected modules are
-  ordered so each is loaded after the ones it needs. Blocks when the image ships a
+  `ENOKEY` however well the vermagic matches, and you can't fix that without the signing
+  key. When the tool can read the kernel's config, this is a **fact**
+  (`CONFIG_MODULE_SIG_FORCE=y`). When it can't, it falls back to an **inference**: if every
+  module the vendor shipped is signed, the kernel very likely enforces it. The log says which
+  of the two you got, since a refusal you can check is worth more than one you can't. Blocks;
+  `--allow-unsigned` overrides.
+- **Missing firmware.** A driver declaring `firmware=` whose blob isn't in `/lib/firmware`
+  loads, then fails to bring the device up. Warns, and names the blob.
+- **Missing or misordered dependencies.** `insmod` doesn't resolve dependencies the way
+  `modprobe` does; it fails outright on an unresolved symbol. Dependencies are checked
+  against the image's modules *and* its built-in drivers, and the injected modules are put in
+  order so each loads after the ones it needs. Blocks when the image ships a
   `modules.builtin` to check against, warns when it doesn't; `--allow-missing-deps` overrides.
 
 ## Tests
@@ -365,36 +366,37 @@ refuses or flags:
 python3 -m unittest discover -s tests -v
 ```
 
-The suite builds a synthetic appliance image from scratch — root-owned files, a **setuid**
-binary, and a directory owned by a uid with no passwd entry — then patches it and asserts
-that all of it survives. It runs as an ordinary user and needs no fixtures in the repo.
+The suite builds a synthetic appliance image from scratch, with root-owned files, a
+**setuid** binary and a directory owned by a uid with no passwd entry, then patches it and
+checks that all of it survives. It runs as an ordinary user and doesn't need any fixtures in
+the repo.
 
 Covered: setuid/ownership/root-inode preservation, module injection, hook placement and
 indentation, hook placement *inside* the correct init branch, idempotency across three
 consecutive re-patches, vermagic blocking and override, input immutability, output-overwrite
 refusal, non-SquashFS rejection, and compressor/block-size preservation.
 
-The discovery suite builds a real (if minimal) ELF object with a genuine `.modinfo` section,
-rather than only the byte-scan stand-in, so the parsing path that runs against every real
-module is the one under test. Covered: modinfo/alias/firmware extraction, signature
+The discovery suite builds an actual (if minimal) ELF object with a proper `.modinfo`
+section, not just the byte-scan stand-in, so the parsing path that runs against every real
+module is the one being tested. Covered: modinfo/alias/firmware extraction, signature
 detection, compressed modules, modalias tokenising and three-state matching, `lspci -nn` /
 `lspci -nnmm` / `lsusb` / modalias / bare-pair parsing, module-vs-built-in-vs-uncovered
 verdicts, external alias databases, candidate ranking through directories and archives, and
 each of the three boot-time checks with its override.
 
 The kernel-spec suite builds synthetic kernels carrying a banner and an `IKCFG` payload, and
-runs the extractor against each of them wrapped in gzip, xz, lzma and bzip2 — a real kernel
-is a stub around a compressed payload, so a test that only fed it an uncompressed blob would
-never exercise the part that does the work. It also asserts the fact-beats-inference
-behaviour in both directions: a config saying signing is *off* must overrule an all-signed
-image, and with no kernel present the inference must still apply.
+runs the extractor against each of them wrapped in gzip, xz, lzma and bzip2. A real kernel is
+a stub around a compressed payload, so a test that only fed it an uncompressed blob would
+never touch the part doing the work. It also checks that a fact beats an inference both ways
+round: a config saying signing is *off* has to overrule an all-signed image, and with no
+kernel present the inference still has to apply.
 
 CI runs the suite on Ubuntu and macOS on every push.
 
 ## Profiles
 
 A profile says where the initrd lives, which init script to hook, where in that script to
-insert, and what a module load looks like in that image's idiom.
+put the hook, and what a module load looks like in that image's idiom.
 
 | Profile | Image | Init script | Load line |
 |---|---|---|---|
@@ -402,21 +404,23 @@ insert, and what a module load looks like in that image's idiom.
 | `sgs` | `boot/initrd` | `etc/init.d/system` | `Run "insmod <path>"` |
 
 The `sgs` profile exists because that image wraps every init command in `Run "…"` from
-`/etc/functions`; emitting the same idiom keeps the patched script consistent with the rest
-of the file and keeps its logging behaviour.
+`/etc/functions`. Writing the load the same way keeps the patched script consistent with the
+rest of the file, and keeps its logging behaviour.
 
-Profiles are a dozen lines in `patcher.py` — adding one for another image is trivial.
+Profiles are a dozen lines in `patcher.py`, so adding one for another image isn't much of a
+job.
 
 ## Where the hook goes
 
-Immediately **before the image's first existing `modprobe`/`insmod`**, matching that line's
-indentation. That anchor matters: it puts the load inside whatever case branch already loads
-modules (so it doesn't also run on `stop`), and it runs before the network is brought up.
+Immediately **before the image's first existing `modprobe`/`insmod`**, at that line's
+indentation. That spot matters: it puts the load inside whichever case branch already loads
+modules (so it doesn't also run on `stop`), and it runs before the network comes up.
 
-Falls back to the first `ifconfig`/`ip link`, then to just after the shebang — the last of
-which is flagged loudly in the log, because it is probably wrong for your image.
+If there isn't one, it falls back to the first `ifconfig`/`ip link`, and failing that to just
+after the shebang. That last one gets flagged loudly in the log, because it's probably wrong
+for your image.
 
-The block is fenced with sentinels:
+The block is fenced off with sentinels:
 
 ```sh
         # >>> system-graft BEGIN (generated — safe to delete this block) >>>
@@ -424,19 +428,19 @@ The block is fenced with sentinels:
         # <<< system-graft END <<<
 ```
 
-Re-patching an already-patched image strips the old block first, so it's idempotent —
-verified over three consecutive passes, with the init script coming out byte-identical to
-the original apart from the block itself.
+Re-patching an already-patched image strips the old block first, so it's idempotent. That's
+verified over three consecutive passes, with the init script coming out byte-identical to the
+original apart from the block itself.
 
-Loading is by **absolute path with `insmod`**, not `modprobe`, so it doesn't depend on
-`modules.dep.bin` being regenerated — which cannot be done portably off-target.
-`modules.dep` still gets a text entry for tidiness.
+It loads by **absolute path with `insmod`** rather than `modprobe`, so it doesn't depend on
+regenerating `modules.dep.bin`, which you can't do portably off-target. `modules.dep` still
+gets a text entry, for tidiness.
 
 ## Writing a bootable USB
 
 After patching, stage 2 writes the **whole boot tree** to removable media as a UEFI-bootable
-volume, substituting the patched initrd for the original. The input tree is never modified —
-the substitution happens in flight.
+volume, with the patched initrd swapped in for the original. The input tree is never
+modified; the swap happens on the way through.
 
 ```bash
 python3 usbwriter.py --list
@@ -448,15 +452,15 @@ python3 usbwriter.py --device disk4 --image-dir /path/to/image-dir \
 ### Bootability model
 
 **UEFI only.** The volume boots through the removable-media fallback path
-`\EFI\BOOT\BOOTX64.EFI`, which requires no NVRAM boot entry and no boot sector. If your
-tree contains that file, the written volume is bootable; if it doesn't, the tool warns you
-before writing.
+`\EFI\BOOT\BOOTX64.EFI`, which needs no NVRAM boot entry and no boot sector. If your tree
+has that file, the written volume is bootable. If it doesn't, the tool warns you before
+writing.
 
 Legacy BIOS boot would need a boot sector installed (`syslinux --install`), which this tool
-does not do. Nothing stops you doing it afterwards.
+doesn't do. Nothing stops you doing it yourself afterwards.
 
 The disk is partitioned GPT with a single FAT32 volume. If `sgdisk` is available and can
-elevate, the partition type is set to EFI System (`ef00`); otherwise it is left as Microsoft
+elevate, the partition type is set to EFI System (`ef00`); otherwise it's left as Microsoft
 Basic Data, which virtually all firmware accepts on removable media.
 
 ### Safety model
@@ -464,60 +468,60 @@ Basic Data, which virtually all firmware accepts on removable media.
 This code can destroy a disk, so:
 
 - **Enumeration only ever returns devices the OS reports as external.** Internal disks are
-  filtered out before you can see them, and rejected again if named explicitly.
-- **Virtual devices (attached disk images) are excluded** unless `--allow-virtual` is passed.
-  That flag exists so the write path can be tested against a throwaway disk image instead of
-  a real stick — it is not offered in the GUI.
+  filtered out before you can see them, and rejected again if you name one explicitly.
+- **Virtual devices (attached disk images) are excluded** unless you pass `--allow-virtual`.
+  That flag is there so the write path can be tested against a throwaway disk image instead
+  of a real stick, and the GUI doesn't offer it.
 - **The device is re-read immediately before the destructive step**, so a stale selection
-  cannot be acted on. If the device has been removed or changed, the write aborts.
+  can't be acted on. If the device has been removed or changed, the write aborts.
 - **Anything mounted at a system path is refused** outright.
-- **The GUI requires you to type the device node** (`disk4`) to confirm, after showing model,
-  size, bus and current mount points.
+- **The GUI makes you type the device node** (`disk4`) to confirm, after showing you its
+  model, size, bus and current mount points.
 - **Every written file is verified by sha256** against its source before the volume is
   ejected.
 
 ### Platform support
 
-macOS (`diskutil`) and Linux (`sgdisk`/`mkfs.vfat`/`mount`, requires root) are both tested
-paths — against attached disk images. On Linux the image is a loop device: attach it with
-`losetup -P` so the kernel scans its partitions, then pass `--allow-virtual`.
+macOS (`diskutil`) and Linux (`sgdisk`/`mkfs.vfat`/`mount`, needs root) are both tested
+paths, but only against attached disk images. On Linux the image is a loop device: attach it
+with `losetup -P` so the kernel scans its partitions, then pass `--allow-virtual`.
 
-Windows is not supported for writing. The patch path does run under
-[MSYS2](https://www.msys2.org/) with its `squashfs-tools` and `python` packages, provided
-`MSYS=winsymlinks:lnk` is set in the environment (the default symlink emulation cannot create
-a link to a target that does not exist yet, and an initrd is full of those). An initrd
-patched that way booted identically to one patched on Linux. Plain Windows Python can run
-the inspection commands (`--report`, `--build-spec`, `--hardware`, `--scan`) with MSYS2's
-`usr\bin` on `PATH`; patching from it has not been tried.
+Windows isn't supported for writing. The patch path does run under
+[MSYS2](https://www.msys2.org/) with its `squashfs-tools` and `python` packages, as long as
+`MSYS=winsymlinks:lnk` is set in the environment (the default symlink emulation can't create
+a link to a target that doesn't exist yet, and an initrd is full of those). An initrd patched
+that way booted identically to one patched on Linux. Plain Windows Python can run the
+inspection commands (`--report`, `--build-spec`, `--hardware`, `--scan`) with MSYS2's
+`usr\bin` on `PATH`. I haven't tried patching from it.
 
 ## Notes and limits
 
 - **SquashFS only.** cpio/gzip initramfs images are detected and rejected with a clear
-  message rather than being corrupted.
+  message, rather than corrupted.
 - **xattrs are dropped by default.** On macOS the extract picks up host `com.apple.*`
-  attributes, and baking those into a Linux image is at best noise. `--keep-xattrs` if your
-  image genuinely uses them (SELinux labels, capabilities) — but then run on Linux.
-- **File capabilities** (`security.capability`) live in xattrs and are therefore dropped with
+  attributes, and baking those into a Linux image is noise at best. Use `--keep-xattrs` if
+  your image does use them (SELinux labels, capabilities), but run it on Linux if you do.
+- **File capabilities** (`security.capability`) live in xattrs, so they get dropped with
   them. If your image relies on file caps rather than setuid, use `--keep-xattrs` on Linux.
-- **The kernel is not touched.** Only the initrd. If the driver you need can't be built as a
-  module against that kernel, this tool can't help you.
-- **Nothing outside the initrd is touched** — no vendor container formats are opened, no
-  checksums recomputed, no compatibility lists edited.
+- **The kernel isn't touched.** Only the initrd is. If the driver you need can't be built as
+  a module against that kernel, this tool can't help you, I'm afraid.
+- **Nothing outside the initrd is touched.** It doesn't open vendor container formats,
+  recompute checksums or edit compatibility lists.
 
 ## Unsigned builds — macOS Gatekeeper
 
-macOS builds are **Developer ID-signed and notarised by Apple** — they open
-normally, with no Gatekeeper warning and no quarantine step. The Windows
-binaries are **not** code-signed, so Windows still warns you the first time.
+macOS builds are **Developer ID-signed and notarised by Apple**, so they open normally, with
+no Gatekeeper warning and no quarantine step. The Windows binaries **aren't** code-signed, so
+Windows still warns you the first time.
 
-- **Linux** — no signing gate.
+- **Linux**: no signing gate.
 
 Per-artifact steps, self-signing and checksum verification:
 **[docs/UNSIGNED.md](docs/UNSIGNED.md)**.
 
 ## Scope
 
-This is a general-purpose SquashFS initrd tool. It reads an image you provide and modules
-you provide and writes a new image. Whether modifying any particular image is permitted is
-determined by that image's licence terms, and is your call to make — not something this
-tool asserts or works around.
+This is a general-purpose SquashFS initrd tool. It reads an image and modules you provide and
+writes a new image. Whether you're allowed to modify a particular image depends on that
+image's licence terms, and that's your call to make. This tool doesn't decide it for you or
+work around it.

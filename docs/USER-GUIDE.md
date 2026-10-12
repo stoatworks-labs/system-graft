@@ -1,9 +1,10 @@
 # System Graft user guide
 
-Injecting kernel modules into a SquashFS initrd, and writing a bootable UEFI USB stick.
+System Graft injects kernel modules into a SquashFS initrd and writes the result to a
+bootable UEFI USB stick.
 
-The [README](../README.md) explains the vermagic constraint, the bootability model and the
-safety model in detail. This is the workflow, and what to be careful with.
+The [README](../README.md) goes into the vermagic constraint, the bootability model and the
+safety model in detail. This guide is the workflow, and the things to be careful with.
 
 ---
 
@@ -11,16 +12,16 @@ safety model in detail. This is the workflow, and what to be careful with.
 ### This tool erases disks
 
 The USB writer **repartitions and erases whole block devices.** Point it at the wrong device and
-it destroys a disk. There is no undo and no recovery.
+it destroys a disk. There's no undo and no recovery.
 
-Several guards exist and they are good ones — external devices only, internal disks rejected even
-when named explicitly, the device re-read immediately before writing, anything mounted at a
-system path refused, and the GUI making you **type the device node** after showing model, size,
-bus and mount points. **Do not look for ways around them.**
+There are several guards, and they're good ones: external devices only, internal disks
+rejected even when named explicitly, the device re-read immediately before writing, anything
+mounted at a system path refused, and the GUI making you **type the device node** after
+showing its model, size, bus and mount points. **Don't look for ways around them.**
 
 ### What is actually proven
 
-Three separate claims that are easy to collapse into one:
+These are three separate claims, and it's easy to blur them into one:
 
 | | Evidence |
 |---|---|
@@ -28,12 +29,12 @@ Three separate claims that are easy to collapse into one:
 | **The USB writer** | macOS and Linux, each only ever run against an **attached disk image — never a physical stick.** |
 | **The result booting** | A patched Waves SGS 16.5 image **booted in a KVM virtual machine** (OVMF, Q35) and the three injected drivers loaded and passed traffic. **Never on real hardware.** |
 
-So: **the transformation is well tested, the delivery mechanism has only been proven against
-disk images, and the result has booted in a VM but never on a physical machine.** Plan for the
-possibility that the stick doesn't boot, and keep the original image.
+In short: **the transformation is well tested, the delivery mechanism has only been proven
+against disk images, and the result has booted in a VM but never on a physical machine.** Plan
+for the stick not booting, and keep the original image.
 
-macOS and Linux are the tested platforms for writing. Windows isn't supported for writing; the
-patch path works under MSYS2 with `MSYS=winsymlinks:lnk` set.
+macOS and Linux are the tested platforms for writing. Windows isn't supported for writing,
+though the patch path works under MSYS2 with `MSYS=winsymlinks:lnk` set.
 
 ---
 
@@ -42,40 +43,40 @@ patch path works under MSYS2 with `MSYS=winsymlinks:lnk` set.
 ![The two steps on one window: patch an initrd with your modules, then write the whole boot tree to a USB stick.](screenshots/patch-complete.png)
 
 *"You supply the image and the modules. This tool ships neither, never modifies the input, and
-always writes new output" — the app's own first line, and the shape of the whole thing.*
+always writes new output". That's the app's own first line, and it sums the whole thing up.*
 
-1. **Get the image and the modules.** The tool reads an image you provide and modules you
-   provide, and writes a new initrd. It doesn't fetch anything.
-2. **Patch** — inject the modules into the initrd.
-3. **Write** — put the boot tree, with the patched initrd substituted in, onto a USB stick.
+1. **Get the image and the modules.** The tool reads an image and modules you provide, and
+   writes a new initrd. It doesn't fetch anything.
+2. **Patch**: inject the modules into the initrd.
+3. **Write**: put the boot tree, with the patched initrd swapped in, onto a USB stick.
 
-There's a GUI and a CLI; see the README for invocation.
+There's a GUI and a CLI, and the README shows how to run both.
 
 ---
 
 ## The vermagic wall, and why you shouldn't climb it
 
-![The app refusing a module on a vermagic mismatch: the log names both strings — the module's 6.1.0-19-amd64 against the image's 6.12.11 — and says the kernel will refuse to load it.](screenshots/vermagic-blocked.png)
+![The app refusing a module on a vermagic mismatch: the log names both strings (the module's 6.1.0-19-amd64 against the image's 6.12.11) and says the kernel will refuse to load it.](screenshots/vermagic-blocked.png)
 
-*The refusal states both vermagic strings and what to do about it. **Allow vermagic mismatch**
-above the Patch button is the override, and its own label tells you the outcome: "module will not
-load".*
+*The refusal gives both vermagic strings and what to do about it. **Allow vermagic mismatch**
+above the Patch button is the override, and its own label tells you how that ends: "module will
+not load".*
 
-A module only loads into a kernel whose **vermagic matches exactly** — kernel version, SMP,
+A module only loads into a kernel whose **vermagic matches in full**: kernel version, SMP,
 preemption model, `mod_unload`, `modversions`.
 
 Get it wrong and the kernel **refuses the module silently, at boot, on a machine you may not have
-a console on.** That's the failure this tool exists to prevent, so it reads the vermagic of every
-`.ko` already in the image and every `.ko` you're adding, and **blocks on mismatch by default**,
-printing both strings side by side.
+a console on.** That's the failure this tool is here to prevent, so it reads the vermagic of
+every `.ko` already in the image and every `.ko` you're adding, and **blocks on a mismatch by
+default**, printing both strings side by side.
 
-There is an override. It is off by default and it "exists for people who know why they want it".
-**It is not a way past an inconvenient error** — the module still won't load; you'll just find out
-at boot instead of now.
+There's an override. It's off by default and it "exists for people who know why they want it".
+**It won't get you past an inconvenient error.** The module still won't load; you'll just find
+out at boot instead of now.
 
-> **Matching the vermagic string is necessary but not sufficient.** If `CONFIG_MODVERSIONS`
+> **Matching the vermagic string is necessary, but it isn't enough.** If `CONFIG_MODVERSIONS`
 > appears in it, the **symbol CRCs must match too**. Build against the same kernel **source and
-> config** as the image's kernel — not merely the same version number.
+> config** as the image's kernel, not just the same version number.
 
 If the driver you need can't be built as a module against that kernel, **this tool can't help
 you.** It doesn't touch the kernel, only the initrd.
@@ -94,8 +95,8 @@ load is written in that image's idiom**.
 The hook goes in **immediately before the image's own module loading**, or failing that before it
 brings up networking.
 
-The `sgs` profile writes loads wrapped in `Run "…"` because SGS init scripts do — matching the
-image's own conventions rather than looking foreign in it.
+The `sgs` profile wraps its loads in `Run "…"` because SGS init scripts do, so the hook follows
+the image's own conventions instead of sticking out.
 
 **Re-patching an already-patched image replaces the hook rather than stacking another one.**
 
@@ -117,9 +118,9 @@ image's own conventions rather than looking foreign in it.
 **Only external devices are ever offered.** Internal disks are filtered out before you can see
 them and rejected again if you name one explicitly.
 
-**Attached disk images are excluded** unless you explicitly allow them — that switch exists so
-the write path can be tested against a throwaway image instead of a real stick, and it is
-deliberately **not offered in the GUI**.
+**Attached disk images are excluded** unless you explicitly allow them. That switch is there so
+the write path can be tested against a throwaway image instead of a real stick, and it's **not
+offered in the GUI**, on purpose.
 
 Before the destructive step the device is **re-read**, so a stale selection can't be acted on. If
 the stick was removed or changed, the write aborts.
@@ -128,18 +129,18 @@ the stick was removed or changed, the write aborts.
 
 ### Bootability is UEFI-only, and only warned about
 
-The volume boots through the removable-media fallback path `\EFI\BOOT\BOOTX64.EFI` — no NVRAM
-entry, no boot sector.
+The volume boots through the removable-media fallback path `\EFI\BOOT\BOOTX64.EFI`, so it needs
+no NVRAM entry and no boot sector.
 
 **If your tree doesn't contain that file, the tool warns you and still writes.** A warning you
 click past produces a stick that isn't bootable. **Read the warning.**
 
-**Legacy BIOS is not supported** — that needs a boot sector this tool doesn't install. You can do
-it afterwards yourself.
+**Legacy BIOS isn't supported.** That needs a boot sector, which this tool doesn't install. You
+can add one yourself afterwards.
 
 The partition type is set to EFI System **if `sgdisk` is available and can elevate**; otherwise
 it's left as Microsoft Basic Data, which virtually all firmware accepts on removable media. So
-the partition type quietly depends on whether elevation succeeded.
+the partition type you end up with silently depends on whether elevation succeeded.
 
 ---
 
@@ -161,6 +162,6 @@ the partition type quietly depends on whether elevation succeeded.
 
 ## See also
 
-- [API.md](API.md) — both CLIs, the Python API, and the profile system
-- [DEVELOPING.md](DEVELOPING.md) — the rules for working on this safely
-- [README](../README.md) — vermagic, bootability, safety model, scope
+- [API.md](API.md): both CLIs, the Python API and the profile system
+- [DEVELOPING.md](DEVELOPING.md): the rules for working on this safely
+- [README](../README.md): vermagic, bootability, safety model, scope
