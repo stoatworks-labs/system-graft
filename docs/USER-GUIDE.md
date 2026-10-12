@@ -46,7 +46,10 @@ though the patch path works under MSYS2 with `MSYS=winsymlinks:lnk` set.
 always writes new output". That's the app's own first line, and it sums the whole thing up.*
 
 1. **Get the image and the modules.** The tool reads an image and modules you provide, and
-   writes a new initrd. It doesn't fetch anything.
+   writes a new initrd. It never fetches either on its own. The only part that goes online is
+   the optional driver lookup (**Find online…** in the GUI, `--find-drivers` on the CLI), which
+   asks the distribution's archive for package metadata. It only downloads a package if you
+   ask it to: answer Yes in the GUI, or pass `--fetch-drivers DIR`.
 2. **Patch**: inject the modules into the initrd.
 3. **Write**: put the boot tree, with the patched initrd swapped in, onto a USB stick.
 
@@ -156,7 +159,7 @@ the partition type you end up with silently depends on whether elevation succeed
 | **My USB stick isn't listed** | Only devices the OS reports as **external** are shown ([Writing the USB stick](#writing-the-usb-stick)). |
 | **A disk image isn't listed** | Virtual devices need the explicit allow flag, and it isn't in the GUI ([Writing the USB stick](#writing-the-usb-stick)). |
 | **The write aborted just before starting** | The device was re-read and had changed or gone ([Writing the USB stick](#writing-the-usb-stick)). |
-| **On Linux and it behaved oddly** | The Linux write path is **implemented and completely untested** ([Read this before running anything](#read-this-before-running-anything)). |
+| **On Linux and it behaved oddly** | The Linux write path has only ever been run against an **attached disk image (a loop device), never a physical stick** ([Read this before running anything](#read-this-before-running-anything)). |
 
 ---
 

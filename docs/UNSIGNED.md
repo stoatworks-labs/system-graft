@@ -1,24 +1,10 @@
-# Running System Graft — Gatekeeper, SmartScreen and firewalls
+# Running System Graft — Gatekeeper and Linux packages
 
-macOS builds are signed and notarised, so they just open. The Windows
-builds are unsigned and SmartScreen will object once. This page covers
-that, the firewall prompts, and how to verify a download.
-
-## Why the Windows builds are unsigned
-
-macOS signing is covered: this project carries an Apple Developer Program
-membership and a *Developer ID Application* certificate, and every macOS
-artefact is notarised by Apple.
-
-Windows is not. An Authenticode certificate (OV, or EV to skip building
-SmartScreen reputation) runs ~$200-500/year, and the certificate authorities
-will only issue one to a registered legal entity — which this project is not.
-Nothing is wrong with the Windows downloads; Windows simply has no publisher
-identity to check them against, so it assumes the worst once and then
-remembers your answer.
-
-> If you'd rather not trust a stranger's binary at all, every release is reproducible
-> from source — see the build instructions in the README.
+macOS builds are signed and notarised, so they just open. There's no Windows
+build to run: Windows isn't supported for writing, and the patch path runs
+there from source under MSYS2 (see [Platform support](../README.md#platform-support)).
+This page covers checking the macOS signature and installing the Linux
+packages, which are unsigned.
 
 ## macOS — nothing to do
 
@@ -44,6 +30,3 @@ chmod +x ./system-graft
 
 The `.deb` and `.rpm` packages are unsigned too, so your package manager may object:
 `sudo dpkg -i <file>.deb` or `sudo rpm -i --nosignature <file>.rpm`.
-
-## Signing it yourself
-

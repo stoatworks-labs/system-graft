@@ -138,9 +138,9 @@ Two stages, sharing one progress bar and one log:
 2. **Write bootable USB**: pick a removable device, confirm, and it writes the boot tree
    with the patched initrd swapped in.
 
-Stage 1 also has four **Inspect** buttons. They sit above the module list because they're
-how you work out *which* module you need in the first place, and none of them write
-anything:
+Stage 1 also has five **Inspect** buttons. They sit above the module list because they're
+how you work out *which* module you need in the first place, and none of them write an
+image:
 
 | Button | Does |
 |---|---|
@@ -511,12 +511,13 @@ inspection commands (`--report`, `--build-spec`, `--hardware`, `--scan`) with MS
 ## Unsigned builds — macOS Gatekeeper
 
 macOS builds are **Developer ID-signed and notarised by Apple**, so they open normally, with
-no Gatekeeper warning and no quarantine step. The Windows binaries **aren't** code-signed, so
-Windows still warns you the first time.
+no Gatekeeper warning and no quarantine step. There's no Windows build. Windows isn't supported
+for writing, and the patch path runs there from source under MSYS2 (see
+[Platform support](#platform-support)).
 
 - **Linux**: no signing gate.
 
-Per-artifact steps, self-signing and checksum verification:
+Checking the macOS signature, and installing the unsigned Linux packages:
 **[docs/UNSIGNED.md](docs/UNSIGNED.md)**.
 
 ## Scope
