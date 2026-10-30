@@ -156,7 +156,7 @@ two halves of the project — rather than new features on an unverified path.
 ## 6. Conventions
 
 - Public repo, MIT. "Commit" means commit **and** push.
-- Multi-platform release CI; cross-compile macOS x86_64 on `macos-14` — never `macos-13`.
+- Multi-platform release CI; cross-compile macOS x86_64 on `macos-15` — never `macos-13`.
 
 ## Diagnostics
 

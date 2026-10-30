@@ -128,7 +128,7 @@ initrd is touched, and that statement is load-bearing.
 ## 6. Conventions
 
 - Public repo, MIT. "Commit" means commit **and** push.
-- Multi-platform release CI; **cross-compile macOS x86_64 on `macos-14` — never `macos-13`.**
+- Multi-platform release CI; **cross-compile macOS x86_64 on `macos-15` — never `macos-13`.**
 - **Never abbreviate the project name to "SG" in public-facing text.**
 
 ---

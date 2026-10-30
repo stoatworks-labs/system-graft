@@ -33,7 +33,7 @@ jobs:
           # Was arm64 ONLY: Intel Macs got no build at all, while the .pkg
           # release-lib produces declares hostArchitectures="arm64,x86_64" and
           # therefore installed on them anyway. universal2 makes that true.
-          - { name: macos-universal, os: macos-14 }
+          - { name: macos-universal, os: macos-15 }
           - { name: linux-x86_64,  os: ubuntu-latest,   pkgarch: amd64 }
           - { name: linux-aarch64, os: ubuntu-24.04-arm, pkgarch: arm64 }
     steps:
