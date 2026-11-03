@@ -14,6 +14,8 @@
 System Graft puts out-of-tree kernel modules into a SquashFS initrd, adds a load hook to the
 image's init scripts, and writes the result to bootable removable media.
 
+The [project page](https://stoatworks-labs.com/software/system-graft/) has the downloads and the [user guide](https://stoatworks-labs.com/software/system-graft/guide/).
+
 You bring the image and the modules. **This tool ships neither**, and it contains no
 third-party firmware or binaries. It never modifies its input either: it always writes a new
 file.
